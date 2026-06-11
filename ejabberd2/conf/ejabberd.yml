@@ -1,0 +1,118 @@
+hosts:
+  - hubx2.local
+
+loglevel: info
+
+s2s_use_starttls: optional
+s2s_access: s2s
+certfiles:
+  - /home/ejabberd/conf/fed.pem
+ca_file: /home/ejabberd/conf/fed.pem
+
+acl:
+  admin:
+    user:
+      - "admin@hubx2.local"
+  local:
+    user_regexp: ""
+  loopback:
+    ip:
+      - 127.0.0.0/8
+      - "::1/128"
+  world:
+    ip:
+      - 0.0.0.0/0
+      - "::/0"
+
+access_rules:
+  local:
+    allow: local
+  c2s:
+    deny: blocked
+    allow: all
+  announce:
+    allow: admin
+  configure:
+    allow: admin
+  register_access:
+    allow: world
+  s2s:
+    allow: all
+
+api_permissions:
+  "console commands":
+    from:
+      - ejabberd_ctl
+    who: all
+    what: "*"
+
+shaper:
+  normal:
+    rate: 3000
+    burst_size: 20000
+  fast: 100000
+
+shaper_rules:
+  max_user_sessions: 10
+  c2s_shaper:
+    none: admin
+    normal: all
+  s2s_shaper: fast
+
+listen:
+  -
+    port: 5222
+    ip: "::"
+    module: ejabberd_c2s
+    max_stanza_size: 262144
+    shaper: c2s_shaper
+    access: c2s
+    starttls: false
+
+  -
+    port: 5280
+    ip: "::"
+    module: ejabberd_http
+    request_handlers:
+      /ws: ejabberd_http_ws
+      /api: mod_http_api
+      /admin: ejabberd_web_admin
+    tls: false
+
+  -
+    port: 5269
+    ip: "::"
+    module: ejabberd_s2s_in
+    max_stanza_size: 524288
+
+registration_timeout: infinity
+
+modules:
+  mod_adhoc: {}
+  mod_admin_extra: {}
+  mod_caps: {}
+  mod_carboncopy: {}
+  mod_client_state: {}
+  mod_configure: {}
+  mod_disco: {}
+  mod_http_api: {}
+  mod_last: {}
+  mod_offline:
+    access_max_user_messages: 5000
+  mod_mam:
+    default: always
+    db_type: mnesia
+    request_activates_archiving: false
+  mod_ping: {}
+  mod_privacy: {}
+  mod_private: {}
+  mod_register:
+    access: register_access
+    ip_access: all
+    access_from: register_access
+  mod_roster:
+    versioning: true
+  mod_stream_mgmt:
+    resend_on_timeout: if_offline
+  mod_vcard: {}
+  mod_version: {}

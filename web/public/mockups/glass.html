@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Indigo Glass · Messenger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --accent:#6366f1;
+    --accent-2:#818cf8;
+    --accent-soft:rgba(99,102,241,.18);
+    --bg-0:#0a0a16;
+    --bg-1:#0d0e1f;
+    --glass:rgba(28,30,54,.55);
+    --glass-2:rgba(34,37,66,.45);
+    --glass-3:rgba(40,44,78,.40);
+    --stroke:rgba(255,255,255,.08);
+    --stroke-strong:rgba(255,255,255,.14);
+    --txt:#eef0fb;
+    --txt-2:#b6badd;
+    --txt-3:#7d82a8;
+    --muted:#5d6286;
+    --green:#34d399;
+    --red:#f87171;
+    --r-lg:22px;
+    --r-md:16px;
+    --r-sm:12px;
+    --sh-glass:0 8px 40px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.07);
+    --sh-soft:0 6px 24px rgba(10,8,40,.35);
+    --space:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Manrope',system-ui,sans-serif;
+    color:var(--txt);
+    background:var(--bg-0);
+    width:100vw;height:100vh;overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    font-feature-settings:"ss01" on;
+  }
+  .tnum{font-variant-numeric:tabular-nums}
+
+  /* ---------- AURORA BACKDROP ---------- */
+  .aurora{position:fixed;inset:0;z-index:0;overflow:hidden;background:
+     radial-gradient(120% 120% at 50% 0%, #12132a 0%, #0a0a16 60%, #08080f 100%);}
+  .aurora::before,.aurora::after{content:"";position:absolute;border-radius:50%;filter:blur(90px);opacity:.55}
+  .aurora::before{width:620px;height:620px;left:-120px;top:-160px;
+    background:radial-gradient(circle, #4f46e5 0%, transparent 70%);}
+  .aurora::after{width:680px;height:680px;right:-160px;top:120px;
+    background:radial-gradient(circle, #7c3aed 0%, transparent 70%);}
+  .blob{position:absolute;border-radius:50%;filter:blur(100px);opacity:.40}
+  .blob.cyan{width:520px;height:520px;left:38%;bottom:-220px;
+    background:radial-gradient(circle,#06b6d4 0%,transparent 70%);}
+  .blob.violet{width:440px;height:440px;left:20%;top:34%;
+    background:radial-gradient(circle,#8b5cf6 0%,transparent 70%);opacity:.30}
+
+  /* ---------- APP SHELL ---------- */
+  .app{
+    position:relative;z-index:1;
+    width:100vw;height:100vh;
+    display:grid;
+    grid-template-columns:66px 310px 1fr 300px;
+    padding:14px;gap:14px;
+  }
+  .panel{
+    background:var(--glass);
+    backdrop-filter:blur(22px) saturate(140%);
+    -webkit-backdrop-filter:blur(22px) saturate(140%);
+    border:1px solid var(--stroke);
+    border-radius:var(--r-lg);
+    box-shadow:var(--sh-glass);
+    overflow:hidden;
+  }
+
+  /* ============ 1) ICON RAIL ============ */
+  .rail{display:flex;flex-direction:column;align-items:center;padding:16px 0;}
+  .brand{
+    width:40px;height:40px;border-radius:13px;display:grid;place-items:center;
+    background:linear-gradient(150deg,var(--accent),#a855f7);
+    box-shadow:0 6px 18px rgba(99,102,241,.5), inset 0 1px 0 rgba(255,255,255,.4);
+    color:#fff;margin-bottom:22px;flex:none;
+  }
+  .rail-stack{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;}
+  .ibtn{
+    position:relative;width:44px;height:44px;border-radius:14px;border:1px solid transparent;
+    display:grid;place-items:center;color:var(--txt-3);cursor:pointer;background:transparent;
+    transition:.2s;flex:none;
+  }
+  .ibtn svg{width:21px;height:21px}
+  .ibtn:hover{color:var(--txt);background:var(--glass-3);border-color:var(--stroke)}
+  .ibtn.active{
+    color:#fff;background:linear-gradient(160deg,rgba(99,102,241,.4),rgba(99,102,241,.12));
+    border-color:rgba(129,140,248,.45);box-shadow:0 4px 16px rgba(99,102,241,.35);
+  }
+  .ibtn.active::before{
+    content:"";position:absolute;left:-12px;top:50%;transform:translateY(-50%);
+    width:4px;height:22px;border-radius:4px;background:linear-gradient(var(--accent),#a855f7);
+  }
+  .rail-bottom{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .storage{position:relative;width:48px;height:48px;display:grid;place-items:center}
+  .storage svg{transform:rotate(-90deg)}
+  .storage .ring-bg{stroke:rgba(255,255,255,.10)}
+  .storage .ring-fg{stroke:url(#sg);stroke-linecap:round}
+  .storage .gb{position:absolute;inset:0;display:grid;place-items:center;
+    font-size:9.5px;font-weight:800;letter-spacing:-.3px}
+  .storage .gb small{display:block;font-size:6.5px;color:var(--txt-3);font-weight:600;text-align:center}
+  .avatar-rail{position:relative;width:40px;height:40px;border-radius:50%;
+    background-size:cover;background-position:center;border:2px solid rgba(255,255,255,.18)}
+  .dot-online{position:absolute;width:11px;height:11px;border-radius:50%;background:var(--green);
+    right:-1px;bottom:-1px;border:2.5px solid #14152a;box-shadow:0 0 8px rgba(52,211,153,.8)}
+
+  /* ============ 2) CONVERSATION LIST ============ */
+  .list{display:flex;flex-direction:column}
+  .list-pad{padding:18px 16px 8px}
+  .stories{display:flex;gap:11px;overflow:hidden;align-items:flex-start;position:relative}
+  .story{display:flex;flex-direction:column;align-items:center;gap:6px;flex:none;width:50px}
+  .story .ring{width:50px;height:50px;border-radius:50%;padding:2.5px;
+    background:conic-gradient(from 210deg,#6366f1,#a855f7,#06b6d4,#6366f1);display:grid;place-items:center}
+  .story .ring.seen{background:rgba(255,255,255,.14)}
+  .story .ring img{width:100%;height:100%;border-radius:50%;border:2.5px solid #0e0f22;object-fit:cover}
+  .story span{font-size:10.5px;color:var(--txt-3);max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .story.add .ring{background:rgba(255,255,255,.10);}
+  .story.add .plus{width:100%;height:100%;border-radius:50%;border:2.5px solid #0e0f22;display:grid;place-items:center;
+    background:var(--glass-3);color:var(--accent-2)}
+  .story-chev{position:absolute;right:-4px;top:14px;width:22px;height:22px;border-radius:50%;
+    background:var(--glass);border:1px solid var(--stroke);display:grid;place-items:center;color:var(--txt-2);
+    backdrop-filter:blur(8px);cursor:pointer}
+
+  .msg-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
+  .msg-head h2{font-size:19px;font-weight:800;letter-spacing:-.4px;display:flex;align-items:center;gap:9px}
+  .pill-new{font-size:10.5px;font-weight:700;color:var(--accent-2);background:var(--accent-soft);
+    border:1px solid rgba(129,140,248,.3);padding:3px 8px;border-radius:20px}
+  .head-act{display:flex;gap:6px}
+  .mini-btn{width:34px;height:34px;border-radius:11px;border:1px solid var(--stroke);background:var(--glass-3);
+    display:grid;place-items:center;color:var(--txt-2);cursor:pointer;transition:.18s}
+  .mini-btn:hover{color:#fff;border-color:var(--stroke-strong);background:var(--glass-2)}
+
+  .search{margin:2px 16px 6px;display:flex;align-items:center;gap:10px;
+    background:var(--glass-3);border:1px solid var(--stroke);border-radius:14px;padding:11px 13px;color:var(--txt-3)}
+  .search input{border:0;background:transparent;color:var(--txt);font:inherit;font-size:13.5px;outline:none;width:100%}
+  .search input::placeholder{color:var(--txt-3)}
+
+  .rows{flex:1;overflow:hidden;padding:4px 10px 12px}
+  .sec-label{font-size:10px;font-weight:800;letter-spacing:1.2px;color:var(--muted);
+    text-transform:uppercase;padding:12px 8px 6px;display:flex;justify-content:space-between;align-items:center}
+  .sec-label .ct{color:var(--txt-3)}
+  .row{display:flex;gap:11px;align-items:center;padding:10px;border-radius:15px;cursor:pointer;
+    transition:.16s;border:1px solid transparent;position:relative}
+  .row:hover{background:var(--glass-3);border-color:var(--stroke)}
+  .row.active{background:linear-gradient(120deg,rgba(99,102,241,.22),rgba(99,102,241,.06));
+    border-color:rgba(129,140,248,.32)}
+  .av{position:relative;flex:none}
+  .av img{width:46px;height:46px;border-radius:15px;object-fit:cover}
+  .av.group img{border-radius:15px}
+  .av .dot{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--green);
+    right:-2px;bottom:-2px;border:3px solid #11122a}
+  .row-mid{flex:1;min-width:0}
+  .row-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .row-name{font-size:13.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row-time{font-size:10.5px;color:var(--txt-3);flex:none}
+  .row-bot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:3px}
+  .row-prev{font-size:12px;color:var(--txt-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
+  .row-prev.typing{color:var(--accent-2);font-weight:600}
+  .row-prev.missed{color:var(--red);font-weight:600}
+  .badge{min-width:20px;height:20px;padding:0 6px;border-radius:11px;background:linear-gradient(var(--accent),#7c3aed);
+    color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center;box-shadow:0 3px 10px rgba(99,102,241,.5)}
+  .badge.mute{background:rgba(255,255,255,.12);color:var(--txt-2);box-shadow:none}
+  .ticks{color:var(--accent-2);display:flex;align-items:center}
+  .pin-ic{color:var(--txt-3);display:flex}
+  .chips{display:flex;gap:6px;margin-top:7px;padding-left:57px}
+  .chip{font-size:10.5px;font-weight:600;color:var(--txt-2);background:var(--glass-3);
+    border:1px solid var(--stroke);padding:4px 9px;border-radius:20px;cursor:pointer;transition:.16s}
+  .chip:hover{border-color:var(--accent);color:#fff}
+  .chip.accent{background:var(--accent-soft);color:var(--accent-2);border-color:rgba(129,140,248,.3)}
+
+  /* ============ 3) CHAT AREA ============ */
+  .chat{display:flex;flex-direction:column;background:
+    radial-gradient(140% 120% at 85% 0%, rgba(99,102,241,.10), transparent 55%),var(--glass-2)}
+  .chat-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--stroke);
+    background:rgba(20,21,42,.35);backdrop-filter:blur(10px)}
+  .chat-head .av img{width:42px;height:42px;border-radius:13px}
+  .ch-title{font-size:15px;font-weight:800;letter-spacing:-.3px}
+  .ch-sub{font-size:11.5px;color:var(--txt-3);margin-top:2px;display:flex;align-items:center;gap:6px}
+  .ch-sub .on{color:var(--green)}
+  .chat-head .acts{margin-left:auto;display:flex;gap:7px}
+
+  .stream{flex:1;overflow:hidden;padding:22px 22px 8px;display:flex;flex-direction:column;gap:16px}
+  .daysep{align-self:center;font-size:10.5px;font-weight:700;color:var(--txt-3);
+    background:var(--glass-3);border:1px solid var(--stroke);padding:4px 12px;border-radius:20px}
+  .m{display:flex;gap:11px;max-width:74%}
+  .m .av img{width:34px;height:34px;border-radius:11px}
+  .m-body{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .m-meta{display:flex;align-items:baseline;gap:8px}
+  .m-name{font-size:12.5px;font-weight:700;color:var(--accent-2)}
+  .m-time{font-size:10px;color:var(--txt-3)}
+  .bubble{background:var(--glass);border:1px solid var(--stroke);border-radius:5px 16px 16px 16px;
+    padding:11px 14px;font-size:13px;line-height:1.55;color:var(--txt);box-shadow:var(--sh-soft)}
+  .bubble.news b{color:#fff}
+  .bubble .ment{color:var(--accent-2);font-weight:700}
+  .reacts{display:flex;gap:7px;margin-top:3px}
+  .react{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--txt-2);
+    background:var(--glass-3);border:1px solid var(--stroke);padding:3px 9px;border-radius:20px;cursor:pointer;transition:.16s}
+  .react:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .react.me{background:var(--accent-soft);border-color:rgba(129,140,248,.4);color:#fff}
+
+  /* voice */
+  .voice{display:flex;align-items:center;gap:12px;background:var(--glass);border:1px solid var(--stroke);
+    border-radius:5px 16px 16px 16px;padding:10px 14px;box-shadow:var(--sh-soft)}
+  .play{width:38px;height:38px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;
+    background:linear-gradient(150deg,var(--accent),#a855f7);box-shadow:0 4px 14px rgba(99,102,241,.5);cursor:pointer}
+  .wave{display:flex;align-items:center;gap:3px;height:30px}
+  .wave i{width:3px;border-radius:3px;background:var(--accent-2);opacity:.55}
+  .wave i.hi{opacity:1;background:linear-gradient(var(--accent-2),var(--accent))}
+  .vtime{font-size:11px;color:var(--txt-2);font-weight:700}
+  .speed{font-size:10px;font-weight:800;color:var(--accent-2);background:var(--accent-soft);
+    border:1px solid rgba(129,140,248,.3);padding:2px 7px;border-radius:8px}
+
+  /* media grid */
+  .media{display:grid;grid-template-columns:1fr 1fr;gap:5px;width:250px;border-radius:16px;overflow:hidden;
+    border:1px solid var(--stroke);box-shadow:var(--sh-soft)}
+  .media img{width:100%;height:84px;object-fit:cover;display:block}
+
+  /* outgoing */
+  .m.out{align-self:flex-end;flex-direction:row-reverse;max-width:62%}
+  .m.out .bubble{background:linear-gradient(140deg,var(--accent),#7c3aed);border:0;
+    border-radius:16px 5px 16px 16px;color:#fff;box-shadow:0 8px 24px rgba(99,102,241,.42)}
+  .m.out .m-meta{justify-content:flex-end}
+  .out-foot{display:flex;align-items:center;gap:5px;justify-content:flex-end;font-size:10px;color:var(--txt-3);margin-top:1px}
+  .out-foot .ticks{color:var(--accent-2)}
+
+  /* typing */
+  .typing-ind{display:flex;align-items:center;gap:10px;color:var(--txt-3);font-size:12px;font-weight:600}
+  .typing-ind .av img{width:28px;height:28px;border-radius:9px}
+  .dots{display:flex;gap:4px;background:var(--glass);border:1px solid var(--stroke);padding:9px 12px;border-radius:14px}
+  .dots i{width:6px;height:6px;border-radius:50%;background:var(--accent-2);animation:bounce 1.3s infinite}
+  .dots i:nth-child(2){animation-delay:.2s}
+  .dots i:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+
+  /* composer */
+  .composer{margin:8px 16px 16px;display:flex;align-items:center;gap:10px;
+    background:var(--glass);border:1px solid var(--stroke-strong);border-radius:18px;padding:8px 8px 8px 8px;
+    box-shadow:var(--sh-glass)}
+  .c-round{width:40px;height:40px;border-radius:13px;flex:none;display:grid;place-items:center;color:var(--txt-2);
+    background:var(--glass-3);border:1px solid var(--stroke);cursor:pointer;transition:.16s}
+  .c-round:hover{color:#fff;border-color:var(--accent)}
+  .composer input{flex:1;border:0;background:transparent;color:var(--txt);font:inherit;font-size:13.5px;outline:none}
+  .composer input::placeholder{color:var(--txt-3)}
+  .file-chip{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--accent-2);
+    background:var(--accent-soft);border:1px solid rgba(129,140,248,.3);padding:6px 10px;border-radius:11px;flex:none}
+  .send{width:42px;height:42px;border-radius:13px;flex:none;display:grid;place-items:center;color:#fff;
+    background:linear-gradient(140deg,var(--accent),#7c3aed);box-shadow:0 6px 18px rgba(99,102,241,.5);cursor:pointer;transition:.16s}
+  .send:hover{transform:translateY(-1px) scale(1.04)}
+
+  /* ============ 4) INFO PANEL ============ */
+  .info{display:flex;flex-direction:column;padding:18px}
+  .info-head{display:flex;align-items:center;justify-content:space-between}
+  .info-head h3{font-size:14px;font-weight:800;letter-spacing:-.2px}
+  .info-av{margin:22px auto 14px;width:96px;height:96px;border-radius:28px;background-size:cover;background-position:center;
+    border:1px solid var(--stroke-strong);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .info-name{text-align:center;font-size:18px;font-weight:800;letter-spacing:-.4px}
+  .info-mem{text-align:center;font-size:12px;color:var(--txt-3);margin-top:3px}
+  .info-quick{display:flex;justify-content:center;gap:10px;margin:18px 0 4px}
+  .qbtn{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;color:var(--txt-2);
+    background:var(--glass-3);border:1px solid var(--stroke);cursor:pointer;transition:.16s}
+  .qbtn:hover{color:#fff;border-color:var(--accent);background:var(--glass-2)}
+  .blk{margin-top:20px}
+  .blk-t{font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .desc{font-size:12.5px;line-height:1.65;color:var(--txt-2)}
+  .members{display:flex;align-items:center;margin-top:6px}
+  .members img{width:34px;height:34px;border-radius:11px;border:2px solid #14152a;margin-left:-9px;object-fit:cover}
+  .members img:first-child{margin-left:0}
+  .members .more{width:34px;height:34px;border-radius:11px;margin-left:-9px;display:grid;place-items:center;
+    background:var(--accent-soft);border:2px solid #14152a;color:var(--accent-2);font-weight:800;font-size:12px}
+  .members .addm{width:34px;height:34px;border-radius:11px;margin-left:10px;display:grid;place-items:center;
+    background:var(--glass-3);border:1px dashed var(--stroke-strong);color:var(--txt-2);cursor:pointer}
+  .shared{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:8px}
+  .shared img{width:100%;height:58px;object-fit:cover;border-radius:11px;border:1px solid var(--stroke)}
+</style>
+</head>
+<body>
+  <div class="aurora"><div class="blob cyan"></div><div class="blob violet"></div></div>
+
+  <div class="app">
+
+    <!-- ===== 1) ICON RAIL ===== -->
+    <aside class="panel rail">
+      <div class="brand" title="Indigo Glass">
+        <svg viewBox="0 0 24 24" fill="none" width="22" height="22"><path d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8-3.6 8-8 8c-1.2 0-2.3-.3-3.4-.8L4 20l1.2-3.4C4.5 15.2 4 13.7 4 12Z" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      </div>
+
+      <nav class="rail-stack">
+        <button class="ibtn active" title="Chats">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M21 11.5a8.4 8.4 0 0 1-11.9 7.6L4 20l1-4.1A8.4 8.4 0 1 1 21 11.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="ibtn" title="Saved Messages">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12a1 1 0 0 1 1 1v15l-7-4-7 4V5a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="ibtn" title="Calls">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 4h3l1.5 4-2 1.3a11 11 0 0 0 5.2 5.2l1.3-2 4 1.5v3a2 2 0 0 1-2 2A14 14 0 0 1 3 6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="ibtn" title="Contacts">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 6.2a3 3 0 0 1 0 5.6M17 19c0-1.8-.8-3.4-2-4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="ibtn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M12 2.5v2M12 19.5v2M4.5 7l1.7 1M17.8 16l1.7 1M4.5 17l1.7-1M17.8 8l1.7-1M2.5 12h2M19.5 12h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </nav>
+
+      <div class="rail-bottom">
+        <button class="ibtn" title="Dark / Light theme">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </button>
+
+        <div class="storage" title="Storage · 89.5GB of 150GB used">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+            <circle class="ring-bg" cx="24" cy="24" r="20" fill="none" stroke-width="4"/>
+            <circle class="ring-fg" cx="24" cy="24" r="20" fill="none" stroke-width="4"
+              stroke-dasharray="125.6" stroke-dashoffset="50"/>
+          </svg>
+          <div class="gb">89.5<small>GB</small></div>
+        </div>
+
+        <div class="avatar-rail" style="background-image:url('https://i.pravatar.cc/100?img=12')" title="Arman · Online">
+          <span class="dot-online"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== 2) CONVERSATION LIST ===== -->
+    <section class="panel list">
+      <div class="list-pad">
+        <div class="stories">
+          <div class="story add">
+            <div class="ring"><div class="plus">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </div></div>
+            <span>Your Story</span>
+          </div>
+          <div class="story"><div class="ring"><img src="https://i.pravatar.cc/100?img=15" alt=""></div><span>Ramin</span></div>
+          <div class="story"><div class="ring"><img src="https://i.pravatar.cc/100?img=33" alt=""></div><span>Hooman</span></div>
+          <div class="story"><div class="ring seen"><img src="https://i.pravatar.cc/100?img=8" alt=""></div><span>Saman</span></div>
+          <div class="story"><div class="ring"><img src="https://i.pravatar.cc/100?img=51" alt=""></div><span>Hossein</span></div>
+          <div class="story"><div class="ring seen"><img src="https://i.pravatar.cc/100?img=60" alt=""></div><span>Mahdi</span></div>
+          <div class="story"><div class="ring"><img src="https://i.pravatar.cc/100?img=27" alt=""></div><span>Alireza</span></div>
+          <div class="story-chev" title="Scroll">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg-head">
+        <h2>Messages <span class="pill-new">48 New</span></h2>
+        <div class="head-act">
+          <button class="mini-btn" title="Filter">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </button>
+          <button class="mini-btn" title="New message">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M4 20l4-1L19 8a2 2 0 0 0-3-3L5 16l-1 4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="search">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        <input placeholder="Search anything" />
+      </div>
+
+      <div class="rows">
+        <div class="sec-label">Pin Chats</div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=15" alt=""><span class="dot"></span></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Ramin Niyazmand</span><span class="row-time tnum">09:24</span></div>
+            <div class="row-bot">
+              <span class="row-prev">🎙 Voice message</span>
+              <span class="badge">3</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-label">Groups &amp; Channels <span class="ct">2</span></div>
+
+        <div class="row active">
+          <div class="av group"><img src="https://i.pravatar.cc/100?img=68" alt=""></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Duxica Team · 22 Members</span><span class="row-time tnum">now</span></div>
+            <div class="row-bot">
+              <span class="row-prev typing">Hadi is typing…</span>
+              <span class="badge">12</span>
+            </div>
+          </div>
+        </div>
+        <div class="chips">
+          <span class="chip accent">View files</span>
+          <span class="chip">Mute</span>
+          <span class="chip">Members</span>
+        </div>
+
+        <div class="row">
+          <div class="av group"><img src="https://i.pravatar.cc/100?img=40" alt=""></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Design Channel</span><span class="row-time tnum">08:02</span></div>
+            <div class="row-bot">
+              <span class="row-prev">📎 3 Files · resources.zip</span>
+              <span class="badge mute">5</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-label">All Messages</div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=33" alt=""><span class="dot"></span></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Hooman Abasi</span><span class="row-time tnum">Yest</span></div>
+            <div class="row-bot">
+              <span class="row-prev"><span class="ticks">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none"><path d="M2 13l4 4 8-9M11 17l1 1 8-9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>Perfect, sending it over now</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=8" alt=""></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Saman Shafaei</span><span class="row-time tnum">Yest</span></div>
+            <div class="row-bot">
+              <span class="row-prev missed">Missed call</span>
+              <span class="pin-ic">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M12 3v9l5 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=51" alt=""><span class="dot"></span></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Hossein Nadershahbaz</span><span class="row-time tnum">Mon</span></div>
+            <div class="row-bot">
+              <span class="row-prev">📎 3 Files</span>
+              <span class="badge">1</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=60" alt=""></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Mahdi Fadaee</span><span class="row-time tnum">Sun</span></div>
+            <div class="row-bot">
+              <span class="row-prev">Let's review the prototype tomorrow</span>
+              <span class="pin-ic">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3-1-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=27" alt=""><span class="dot"></span></div>
+          <div class="row-mid">
+            <div class="row-top"><span class="row-name">Alireza</span><span class="row-time tnum">Sun</span></div>
+            <div class="row-bot">
+              <span class="row-prev typing">is typing…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 3) CHAT AREA ===== -->
+    <main class="panel chat">
+      <header class="chat-head">
+        <div class="av group"><img src="https://i.pravatar.cc/100?img=68" alt=""></div>
+        <div>
+          <div class="ch-title">Duxica Team</div>
+          <div class="ch-sub">22 Members <span>·</span> <span class="on">12 Online</span></div>
+        </div>
+        <div class="acts">
+          <button class="mini-btn" title="Voice call">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M5 4h3l1.5 4-2 1.3a11 11 0 0 0 5.2 5.2l1.3-2 4 1.5v3a2 2 0 0 1-2 2A14 14 0 0 1 3 6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="mini-btn" title="Search in chat">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </button>
+          <button class="mini-btn" title="More">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></svg>
+          </button>
+          <button class="mini-btn" title="Toggle info panel" style="color:#fff;border-color:rgba(129,140,248,.45);background:var(--accent-soft)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M15 4v16" stroke="currentColor" stroke-width="1.7"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="stream">
+        <div class="daysep">Today · June 6</div>
+
+        <!-- incoming -->
+        <div class="m">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=33" alt=""></div>
+          <div class="m-body">
+            <div class="m-meta"><span class="m-name">Hooman Abasi</span><span class="m-time tnum">09:12</span></div>
+            <div class="bubble">Morning team! I pushed the latest dashboard tokens to the design library. Can someone review the spacing scale before standup?</div>
+          </div>
+        </div>
+
+        <!-- news + reactions -->
+        <div class="m">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=15" alt=""></div>
+          <div class="m-body">
+            <div class="m-meta"><span class="m-name">Ramin Niyazmand</span><span class="m-time tnum">09:18</span></div>
+            <div class="bubble news"><span class="ment">@everyone</span> Hello Everyone! <b>GOOD NEWS!!!</b> We just signed the Duxica retainer for Q3 🎉 Massive props to the whole crew.</div>
+            <div class="reacts">
+              <span class="react me">🔥 6</span>
+              <span class="react">👍 4</span>
+              <span class="react">🎉 3</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- voice -->
+        <div class="m">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=51" alt=""></div>
+          <div class="m-body">
+            <div class="m-meta"><span class="m-name">Hossein Nadershahbaz</span><span class="m-time tnum">09:21</span></div>
+            <div class="voice">
+              <div class="play" title="Play">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+              <div class="wave">
+                <i style="height:8px"></i><i style="height:16px"></i><i class="hi" style="height:24px"></i><i class="hi" style="height:30px"></i><i style="height:18px"></i><i style="height:10px"></i><i class="hi" style="height:22px"></i><i style="height:28px"></i><i style="height:14px"></i><i style="height:9px"></i><i class="hi" style="height:20px"></i><i style="height:26px"></i><i style="height:12px"></i><i style="height:7px"></i><i style="height:16px"></i><i style="height:11px"></i>
+              </div>
+              <span class="vtime tnum">1:20</span>
+              <span class="speed">×2</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- media grid -->
+        <div class="m">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=60" alt=""></div>
+          <div class="m-body">
+            <div class="m-meta"><span class="m-name">Mahdi Fadaee</span><span class="m-time tnum">09:26</span></div>
+            <div class="media">
+              <img src="https://picsum.photos/seed/aaa/240/170" alt="">
+              <img src="https://picsum.photos/seed/bbb/240/170" alt="">
+              <img src="https://picsum.photos/seed/ccc/240/170" alt="">
+              <img src="https://picsum.photos/seed/ddd/240/170" alt="">
+            </div>
+          </div>
+        </div>
+
+        <!-- outgoing -->
+        <div class="m out">
+          <div class="m-body">
+            <div class="bubble">Hey guys! what you doing? i just finished the duxica ui design project 😄</div>
+            <div class="out-foot"><span class="tnum">09:31</span><span class="ticks">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M2 13l4 4 8-9M11 17l1 1 8-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span></div>
+          </div>
+        </div>
+
+        <!-- typing -->
+        <div class="typing-ind">
+          <div class="av"><img src="https://i.pravatar.cc/100?img=22" alt=""></div>
+          <span>Hadi Sharifani is typing</span>
+          <div class="dots"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <button class="c-round" title="Attach">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <input placeholder="Type something…" />
+        <span class="file-chip">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          2 File
+        </span>
+        <button class="c-round" title="Emoji">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 14a4 4 0 0 0 7 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>
+        </button>
+        <button class="send" title="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 12l16-8-6 16-3-6-7-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="rgba(255,255,255,.15)"/></svg>
+        </button>
+      </div>
+    </main>
+
+    <!-- ===== 4) INFO PANEL ===== -->
+    <aside class="panel info">
+      <div class="info-head">
+        <h3>Group info</h3>
+        <button class="mini-btn" title="Close">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="info-av" style="background-image:url('https://i.pravatar.cc/200?img=68')"></div>
+      <div class="info-name">Duxica Team</div>
+      <div class="info-mem">22 Members · 12 Online</div>
+
+      <div class="info-quick">
+        <button class="qbtn" title="Mute">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><path d="M5 9v6h4l5 4V5L9 9H5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M19 8l-4 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="qbtn" title="Search">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7"/><path d="m20 20-3.2-3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="qbtn" title="Invite">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="10" cy="8" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M4 19a6 6 0 0 1 12 0M19 7v6M22 10h-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="qbtn" title="More">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></svg>
+        </button>
+      </div>
+
+      <div class="blk">
+        <div class="blk-t">Description</div>
+        <p class="desc">Duxica is a boutique product studio crafting premium dark interfaces for fintech and SaaS. This channel coordinates UI design sprints, async reviews and weekly ship notes. Keep it kind, keep it sharp.</p>
+      </div>
+
+      <div class="blk">
+        <div class="blk-t">Members · 22</div>
+        <div class="members">
+          <img src="https://i.pravatar.cc/100?img=15" alt="">
+          <img src="https://i.pravatar.cc/100?img=33" alt="">
+          <img src="https://i.pravatar.cc/100?img=8" alt="">
+          <img src="https://i.pravatar.cc/100?img=51" alt="">
+          <img src="https://i.pravatar.cc/100?img=60" alt="">
+          <span class="more">+17</span>
+          <span class="addm" title="Add member">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <div class="blk">
+        <div class="blk-t">Shared media</div>
+        <div class="shared">
+          <img src="https://picsum.photos/seed/m1/120/120" alt="">
+          <img src="https://picsum.photos/seed/m2/120/120" alt="">
+          <img src="https://picsum.photos/seed/m3/120/120" alt="">
+          <img src="https://picsum.photos/seed/m4/120/120" alt="">
+          <img src="https://picsum.photos/seed/m5/120/120" alt="">
+          <img src="https://picsum.photos/seed/m6/120/120" alt="">
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</body>
+</html>

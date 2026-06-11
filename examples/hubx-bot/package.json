@@ -1,0 +1,9 @@
+{
+  "name": "hubx-notify-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HubX assistant bot — login notices, reminders (/remind) and help, over XMPP.",
+  "scripts": { "start": "node bot.js" },
+  "dependencies": { "jsdom": "^29.1.1", "strophe.js": "^3.1.1", "ws": "^8.18.0" }
+}

@@ -1,0 +1,24 @@
+{$DOMAIN} {
+	encode gzip
+
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header -Server
+
+	handle /ws {
+		reverse_proxy ejabberd:5280
+	}
+	handle /upload/* {
+		reverse_proxy ejabberd:5280
+	}
+
+	handle /api/* {
+		reverse_proxy backend:4000
+	}
+
+	handle {
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' wss://{$DOMAIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

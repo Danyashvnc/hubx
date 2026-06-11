@@ -1,0 +1,53 @@
+services:
+  ejabberd:
+    image: ejabberd/ecs:24.12
+    container_name: hubx-xmpp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5222:5222"
+      - "127.0.0.1:5280:5280"
+      - "127.0.0.1:5269:5269"
+    volumes:
+      - ./ejabberd/conf/ejabberd.yml:/home/ejabberd/conf/ejabberd.yml:ro
+      - ./certs/fed.pem:/home/ejabberd/conf/fed.pem:ro
+      - hubx-db:/home/ejabberd/database
+    networks:
+      hubx-net:
+        aliases:
+          - hubx.local
+    healthcheck:
+      test: ["CMD", "ejabberdctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  ejabberd2:
+    image: ejabberd/ecs:24.12
+    container_name: hubx-xmpp2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5223:5222"
+      - "127.0.0.1:5281:5280"
+      - "127.0.0.1:5270:5269"
+    volumes:
+      - ./ejabberd2/conf/ejabberd.yml:/home/ejabberd/conf/ejabberd.yml:ro
+      - ./certs/fed.pem:/home/ejabberd/conf/fed.pem:ro
+      - hubx-db2:/home/ejabberd/database
+    networks:
+      hubx-net:
+        aliases:
+          - hubx2.local
+    healthcheck:
+      test: ["CMD", "ejabberdctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+networks:
+  hubx-net:
+
+volumes:
+  hubx-db:
+  hubx-db2:

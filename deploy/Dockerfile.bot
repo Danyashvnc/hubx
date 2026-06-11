@@ -1,0 +1,6 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY examples/hubx-bot/package*.json ./
+RUN npm ci --omit=dev
+COPY examples/hubx-bot/ ./
+CMD ["node", "bot.js"]

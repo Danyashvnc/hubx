@@ -1,0 +1,25 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	encode gzip
+
+	handle /ws {
+		reverse_proxy {$EJABBERD_UPSTREAM:host.docker.internal:5280}
+	}
+	handle /upload/* {
+		reverse_proxy {$EJABBERD_UPSTREAM:host.docker.internal:5280}
+	}
+
+	handle /api/* {
+		reverse_proxy {$BACKEND_UPSTREAM:host.docker.internal:4000}
+	}
+
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
