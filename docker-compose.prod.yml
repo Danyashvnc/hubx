@@ -1,0 +1,75 @@
+services:
+  ejabberd:
+    image: ejabberd/ecs:24.12
+    container_name: hubx-ejabberd
+    restart: unless-stopped
+    volumes:
+      - ./deploy/ejabberd.runtime.yml:/home/ejabberd/conf/ejabberd.yml:ro
+      - ./certs/fed.pem:/home/ejabberd/conf/fed.pem:ro
+      - ejabberd-db:/home/ejabberd/database
+    networks: [hubx]
+    healthcheck:
+      test: ["CMD", "ejabberdctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+
+  backend:
+    build: { context: ., dockerfile: deploy/Dockerfile.backend }
+    container_name: hubx-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      XMPP_HOST: localhost
+      EJABBERD_API: http://ejabberd:5280/api
+      ADMIN_JID: admin@localhost
+      ADMIN_PASS: ${ADMIN_PASS}
+      ADMIN_API_SECRET: ${ADMIN_API_SECRET}
+      ALLOWED_ORIGINS: https://${DOMAIN}
+      TRUST_PROXY: "uniquelocal, loopback, linklocal"
+    volumes:
+      - backend-data:/app/data
+    depends_on:
+      ejabberd: { condition: service_healthy }
+    networks: [hubx]
+
+  bot:
+    build: { context: ., dockerfile: deploy/Dockerfile.bot }
+    container_name: hubx-bot
+    restart: unless-stopped
+    environment:
+      XMPP_WS: ws://ejabberd:5280/ws
+      XMPP_DOMAIN: localhost
+      BOT_USER: hubx-bot
+      BOT_PASS: ${BOT_PASS}
+      REMINDERS_FILE: /app/data/reminders.json
+    volumes:
+      - bot-data:/app/data
+    depends_on:
+      ejabberd: { condition: service_healthy }
+    networks: [hubx]
+
+  caddy:
+    build: { context: ., dockerfile: deploy/Dockerfile.caddy }
+    container_name: hubx-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on: [backend]
+    networks: [hubx]
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+networks:
+  hubx: {}
+volumes:
+  ejabberd-db: {}
+  backend-data: {}
+  bot-data: {}
+  caddy-data: {}
+  caddy-config: {}

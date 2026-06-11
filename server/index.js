@@ -1,0 +1,544 @@
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import webpush from "web-push";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import net from "node:net";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const PORT       = process.env.PORT         || 4000;
+const XMPP_HOST  = process.env.XMPP_HOST    || "localhost";
+const API_BASE   = process.env.EJABBERD_API || "http://localhost:5280/api";
+const ADMIN_JID  = process.env.ADMIN_JID    || "admin@localhost";
+const ADMIN_PASS = process.env.ADMIN_PASS   || "AdminHubX2025!";
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
+  "http://localhost:5173,http://127.0.0.1:5173").split(",").map((s) => s.trim());
+
+const ALLOWED_HOSTS = (process.env.XMPP_HOSTS || `${XMPP_HOST},hubx.local`).split(",").map((s) => s.trim().toLowerCase());
+const safeHost = (h) => { const v = String(h || "").toLowerCase().trim(); return ALLOWED_HOSTS.includes(v) ? v : XMPP_HOST; };
+
+const ADMIN_USERS = (process.env.ADMIN_USERS || ADMIN_JID.split("@")[0])
+  .split(",").map((s) => s.trim().toLowerCase());
+const TOKEN_TTL_MS = 30 * 60 * 1000;
+
+const API_SECRET = process.env.ADMIN_API_SECRET || crypto.randomBytes(32).toString("hex");
+const USING_DEFAULTS =
+  !process.env.ADMIN_API_SECRET || !process.env.ADMIN_PASS;
+
+if (process.env.NODE_ENV === "production" && USING_DEFAULTS) {
+  console.error("[FATAL] Refusing to start in production with default secrets. Set ADMIN_PASS and ADMIN_API_SECRET.");
+  process.exit(1);
+}
+
+const AUTH = "Basic " + Buffer.from(`${ADMIN_JID}:${ADMIN_PASS}`).toString("base64");
+
+async function ejabberd(command, args = {}) {
+  const res = await fetch(`${API_BASE}/${command}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: AUTH },
+    body: JSON.stringify(args),
+    signal: AbortSignal.timeout(8000),
+  });
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const err = new Error(typeof data === "string" ? data : JSON.stringify(data));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+const _cache = new Map();
+async function cached(key, ttlMs, fn) {
+  const hit = _cache.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.val;
+  const val = await fn();
+  _cache.set(key, { at: Date.now(), val });
+  return val;
+}
+
+const GEO_API = process.env.GEO_API || "http://ip-api.com/json";
+const SESSIONS_FILE = process.env.SESSIONS_FILE ||
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "data", "sessions.json");
+const geoCache = new Map();
+const loginStore = new Map();
+let storeDirty = false;
+
+const DATA_DIR = path.dirname(SESSIONS_FILE);
+const VAPID_FILE = path.join(DATA_DIR, "vapid.json");
+const PUSH_FILE = path.join(DATA_DIR, "push.json");
+let vapid = null;
+try { vapid = JSON.parse(fs.readFileSync(VAPID_FILE, "utf8")); } catch {  }
+if (!vapid?.publicKey || !vapid?.privateKey) {
+  vapid = webpush.generateVAPIDKeys();
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(VAPID_FILE, JSON.stringify(vapid), { mode: 0o600 }); } catch {  }
+}
+webpush.setVapidDetails("mailto:admin@hubx.local", vapid.publicKey, vapid.privateKey);
+const pushStore = new Map();
+try {
+  const j = JSON.parse(fs.readFileSync(PUSH_FILE, "utf8"));
+  for (const [k, v] of Object.entries(j)) pushStore.set(k, { sub: v, last: 0 });
+} catch {  }
+function persistPush() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(PUSH_FILE, JSON.stringify(Object.fromEntries([...pushStore].map(([k, v]) => [k, v.sub]))), { mode: 0o600 });
+  } catch {  }
+}
+
+function normIp(ip) {
+  const s = String(ip || "").trim();
+  const m = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  return m ? m[1] : s;
+}
+const RETENTION_MS = Number(process.env.IP_RETENTION_MS) || 30 * 24 * 3600 * 1000;
+const GEO_CAP_PER_TICK = 10;
+
+function clientIp(req) {
+  const cf = req.headers["cf-connecting-ip"];
+  return normIp((Array.isArray(cf) ? cf[0] : cf) || req.ip || "");
+}
+
+function isPrivateIp(ip) {
+  const a = normIp(ip);
+  if (!a) return true;
+  if (net.isIP(a) === 6) return /^(::1$|::$|f[cd]|fe[89ab]|ff)/i.test(a);
+  const p = a.split(".").map(Number);
+  if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+  const [x, y, z] = p;
+  return x === 127 || x === 10 || x === 0 || x >= 240 ||
+    (x === 169 && y === 254) || (x === 192 && y === 168) ||
+    (x === 172 && y >= 16 && y <= 31) || (x === 100 && y >= 64 && y <= 127) ||
+    (x === 192 && y === 0 && (z === 0 || z === 2)) ||
+    (x === 198 && (y === 18 || y === 19)) ||
+    (x === 198 && y === 51 && z === 100) || (x === 203 && y === 0 && z === 113);
+}
+
+function geoCached(ip) {
+  const a = normIp(ip);
+  if (!a || net.isIP(a) === 0) return null;
+  if (isPrivateIp(a)) return { private: true };
+  const hit = geoCache.get(a);
+  return hit && Date.now() - hit.at < 24 * 3600 * 1000 ? hit : null;
+}
+
+async function geoLookup(ip) {
+  const a = normIp(ip);
+  if (!a || net.isIP(a) === 0) return null;
+  if (isPrivateIp(a)) return { private: true };
+  const hit = geoCache.get(a);
+  if (hit && Date.now() - hit.at < 24 * 3600 * 1000) return hit;
+  let geo;
+  try {
+    const r = await fetch(`${GEO_API}/${encodeURIComponent(a)}?fields=status,country,countryCode,city`,
+      { signal: AbortSignal.timeout(4000) });
+    const d = await r.json();
+    geo = d.status === "success"
+      ? { city: d.city || "", country: d.country || "", countryCode: d.countryCode || "", at: Date.now() }
+      : { unknown: true, at: Date.now() };
+  } catch { geo = { unknown: true, at: Date.now() }; }
+  if (geoCache.size > 2000) geoCache.delete(geoCache.keys().next().value);
+  geoCache.set(a, geo);
+  return geo;
+}
+
+function fmtGeo(geo) {
+  if (!geo) return null;
+  if (geo.private) return "Локальная сеть";
+  if (geo.unknown) return "—";
+  const parts = [geo.city, geo.country].filter(Boolean);
+  return parts.length ? parts.join(", ") : "—";
+}
+function loadStore() {
+  try {
+    const j = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
+    for (const k in j) loginStore.set(k, j[k]);
+  } catch {  }
+}
+let lastPersist = 0;
+function persistStore(force = false) {
+  if (!storeDirty || (!force && Date.now() - lastPersist < 5000)) return;
+  try {
+    fs.mkdirSync(path.dirname(SESSIONS_FILE), { recursive: true });
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(Object.fromEntries(loginStore)), { mode: 0o600 });
+    storeDirty = false; lastPersist = Date.now();
+  } catch (e) { console.error("[sessions persist]", e.message); }
+}
+
+function recordLogin(bareJid, ip, source, extra = {}) {
+  const prev = loginStore.get(bareJid);
+
+  const keepBeacon = prev?.source === "beacon" && source !== "beacon";
+  loginStore.set(bareJid, {
+    ip: keepBeacon ? prev.ip : (ip || prev?.ip || null),
+    geo: keepBeacon ? prev.geo : (geoCached(ip) || prev?.geo || null),
+    lastSeenTs: Date.now(),
+    connection: extra.connection || prev?.connection || "",
+    source: keepBeacon ? "beacon" : source,
+  });
+  storeDirty = true;
+}
+
+async function pollSessions() {
+  let rows;
+  try { rows = await ejabberd("connected_users_info", {}); } catch { return; }
+  if (!Array.isArray(rows)) return;
+  let budget = GEO_CAP_PER_TICK;
+  for (const s of rows) {
+    const bare = String(s.jid || "").split("/")[0];
+    if (!bare) continue;
+    const ip = normIp(s.ip);
+    if (budget > 0 && !geoCached(ip) && !isPrivateIp(ip) && net.isIP(ip)) { budget--; await geoLookup(ip); }
+    recordLogin(bare, ip, "ejabberd", { connection: s.connection || "" });
+  }
+
+  for (const [jid, rec] of loginStore) if (rec.lastSeenTs && Date.now() - rec.lastSeenTs > RETENTION_MS) { loginStore.delete(jid); storeDirty = true; }
+  persistStore();
+}
+
+const b64url = (buf) => Buffer.from(buf).toString("base64url");
+function signToken(payload) {
+  const body = b64url(JSON.stringify(payload));
+  const sig = crypto.createHmac("sha256", API_SECRET).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+function verifyToken(token) {
+  if (!token || !token.includes(".")) return null;
+  const [body, sig] = token.split(".");
+  const expected = crypto.createHmac("sha256", API_SECRET).update(body).digest("base64url");
+
+  const a = Buffer.from(sig), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+    if (!payload.exp || payload.exp < Date.now()) return null;
+    return payload;
+  } catch { return null; }
+}
+
+function requireAdmin(req, res, next) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ ok: false, error: "Unauthorized" });
+  req.admin = payload;
+  next();
+}
+
+const app = express();
+app.disable("x-powered-by");
+
+app.set("trust proxy", process.env.TRUST_PROXY || "loopback, uniquelocal, linklocal");
+app.use(helmet());
+app.use(
+  cors({
+    origin(origin, cb) {
+
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+
+      cb(null, false);
+    },
+  })
+);
+app.use(express.json({ limit: "16kb" }));
+
+const registerLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+const loginLimiter    = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+app.get("/api/health", async (_req, res) => {
+  try {
+    await ejabberd("status");
+    res.json({ ok: true, xmppHost: XMPP_HOST });
+  } catch {
+    res.status(503).json({ ok: false, error: "XMPP server unavailable" });
+  }
+});
+
+app.post("/api/register", registerLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || typeof password !== "string" || !password)
+    return res.status(400).json({ ok: false, error: "username and password are required" });
+  if (!/^[a-z0-9._-]{2,32}$/i.test(username))
+    return res.status(400).json({ ok: false, error: "username: 2-32 chars, letters/digits/._- only" });
+  if (String(password).length < 8)
+    return res.status(400).json({ ok: false, error: "password must be at least 8 characters" });
+
+  try {
+    await ejabberd("register", { user: username.toLowerCase(), host: XMPP_HOST, password });
+    res.json({ ok: true, jid: `${username.toLowerCase()}@${XMPP_HOST}` });
+  } catch (e) {
+    if (/conflict|already|exist/i.test(String(e.message)))
+      return res.status(409).json({ ok: false, error: "User already exists" });
+    console.error("[register]", e.message);
+    res.status(500).json({ ok: false, error: "Registration failed" });
+  }
+});
+
+const lookupLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+app.get("/api/user-exists", lookupLimiter, async (req, res) => {
+  const user = String(req.query.u || "").toLowerCase().trim();
+  const host = safeHost(req.query.host);
+  if (!user || !/^[a-z0-9._-]{1,64}$/i.test(user))
+    return res.json({ ok: true, exists: false });
+  try {
+
+    const r = await ejabberd("check_account", { user, host });
+    const exists = r === 0 || r === "0" || r?.res === 0;
+    res.json({ ok: true, exists });
+  } catch (e) {
+
+    res.json({ ok: true, exists: true, unverified: true });
+  }
+});
+
+app.post("/api/admin/login", loginLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  const user = String(username || "").toLowerCase();
+  if (!user || typeof password !== "string" || !password)
+    return res.status(400).json({ ok: false, error: "credentials required" });
+  if (!ADMIN_USERS.includes(user))
+    return res.status(403).json({ ok: false, error: "Not an administrator" });
+
+  try {
+
+    const result = await ejabberd("check_password", { user, host: XMPP_HOST, password });
+    const ok = result === 0 || result === "0" || result?.res === 0;
+    if (!ok) return res.status(401).json({ ok: false, error: "Invalid credentials" });
+
+    const exp = Date.now() + TOKEN_TTL_MS;
+    res.json({ ok: true, token: signToken({ jid: `${user}@${XMPP_HOST}`, exp }), exp });
+  } catch (e) {
+    console.error("[admin/login]", e.message);
+    res.status(500).json({ ok: false, error: "Login failed" });
+  }
+});
+
+app.get("/api/users", requireAdmin, async (_req, res) => {
+  try {
+    const [users, online] = await Promise.all([
+      ejabberd("registered_users", { host: XMPP_HOST }),
+      ejabberd("connected_users", {}).catch(() => []),
+    ]);
+    const onlineBare = new Set(
+      (Array.isArray(online) ? online : []).map((s) => String(s).split("/")[0])
+    );
+    const list = (Array.isArray(users) ? users : []).map((u) => {
+      const name = typeof u === "string" ? u : u.username || u.user;
+      const jid = `${name}@${XMPP_HOST}`;
+      return { username: name, jid, online: onlineBare.has(jid) };
+    });
+    res.json({
+      ok: true,
+      host: XMPP_HOST,
+      total: list.length,
+      onlineCount: list.filter((u) => u.online).length,
+      users: list.sort((a, b) => Number(b.online) - Number(a.online) || a.username.localeCompare(b.username)),
+    });
+  } catch (e) {
+    console.error("[users]", e.message);
+    res.status(503).json({ ok: false, error: "Directory unavailable" });
+  }
+});
+
+app.get("/api/users/search", lookupLimiter, async (req, res) => {
+  const q = String(req.query.q || "").toLowerCase().trim();
+  const host = safeHost(req.query.host);
+  if (q.length < 2) return res.json({ ok: true, users: [] });
+  try {
+
+    const [users, online] = await Promise.all([
+      cached(`reg:${host}`, 5000, () => ejabberd("registered_users", { host })),
+      cached("conn", 5000, () => ejabberd("connected_users", {})).catch(() => []),
+    ]);
+    const onlineBare = new Set((Array.isArray(online) ? online : []).map((s) => String(s).split("/")[0]));
+    const hidden = /^(load\d+|hubx-bot)$/i;
+    const list = (Array.isArray(users) ? users : [])
+      .map((u) => (typeof u === "string" ? u : u.username || u.user))
+      .filter((name) => name && !hidden.test(name) && name.toLowerCase().includes(q))
+      .slice(0, 20)
+      .map((name) => ({ username: name, jid: `${name}@${host}`, online: onlineBare.has(`${name}@${host}`) }));
+    res.json({ ok: true, users: list });
+  } catch {
+    res.json({ ok: true, users: [] });
+  }
+});
+
+app.delete("/api/users/:username", requireAdmin, async (req, res) => {
+  const target = req.params.username.toLowerCase();
+  if (`${target}@${XMPP_HOST}` === req.admin.jid)
+    return res.status(400).json({ ok: false, error: "You cannot delete your own account" });
+  try {
+    await ejabberd("unregister", { user: target, host: XMPP_HOST });
+    loginStore.delete(`${target}@${XMPP_HOST}`); storeDirty = true; lastPersist = 0; persistStore();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[unregister]", e.message);
+    res.status(500).json({ ok: false, error: "Delete failed" });
+  }
+});
+
+app.post("/api/session/beacon", lookupLimiter, async (req, res) => {
+  const bare = String(req.body?.jid || "").toLowerCase().trim().split("/")[0];
+  const [user, host] = bare.split("@");
+  if (user && /^[a-z0-9._-]{1,64}$/.test(user) && host && safeHost(host) === host) {
+    try {
+
+      const conn = await ejabberd("connected_users", {});
+      const onlineBare = new Set((Array.isArray(conn) ? conn : []).map((s) => String(s).split("/")[0]));
+      if (onlineBare.has(bare)) {
+        const ip = clientIp(req);
+        await geoLookup(ip);
+        recordLogin(bare, ip, "beacon");
+        persistStore();
+      }
+    } catch {  }
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/rooms/invite-link", lookupLimiter, async (req, res) => {
+  const room = String(req.body?.room || "").toLowerCase().trim();
+  const jid = String(req.body?.jid || "").toLowerCase().trim();
+  if (!/^[^@\s]+@conference\.[^@\s]+$/.test(room) || !/^[^@\s]+@[^@\s]+$/.test(jid))
+    return res.status(400).json({ ok: false, error: "bad room/jid" });
+  try {
+    const [name, service] = room.split("@");
+
+    const affs = await ejabberd("get_room_affiliations", { room: name, service });
+    const mine = (Array.isArray(affs) ? affs : []).find((a) => String(a.jid || "").toLowerCase() === jid);
+    if (!mine || !["owner", "admin"].includes(mine.affiliation))
+      return res.status(403).json({ ok: false, error: "ссылку может создать только админ группы" });
+    const ttl = Math.min(Math.max(Number(req.body?.ttlMs) || 7 * 864e5, 60_000), 10 * 365 * 864e5);
+    const token = signToken({ t: "muc-invite", room, exp: Date.now() + ttl });
+    res.json({ ok: true, token });
+  } catch { res.status(502).json({ ok: false, error: "ejabberd error" }); }
+});
+app.post("/api/rooms/join", lookupLimiter, async (req, res) => {
+  const p = verifyToken(String(req.body?.token || ""));
+  const jid = String(req.body?.jid || "").toLowerCase().trim();
+  if (!p || p.t !== "muc-invite") return res.status(403).json({ ok: false, error: "ссылка недействительна или истекла" });
+  if (!/^[^@\s]+@[^@\s]+$/.test(jid)) return res.status(400).json({ ok: false, error: "bad jid" });
+  try {
+    const [name, service] = p.room.split("@");
+    const [user, host] = jid.split("@");
+
+    await ejabberd("set_room_affiliation", { room: name, service, user, host, affiliation: "member" });
+    res.json({ ok: true, room: p.room });
+  } catch { res.status(502).json({ ok: false, error: "ejabberd error" }); }
+});
+
+app.get("/api/push/key", (_req, res) => res.json({ ok: true, key: vapid.publicKey }));
+app.post("/api/push/subscribe", lookupLimiter, (req, res) => {
+  const bare = String(req.body?.jid || "").toLowerCase().trim().split("/")[0];
+  const sub = req.body?.sub;
+  const [user, host] = bare.split("@");
+  if (!user || !/^[a-z0-9._-]{1,64}$/.test(user) || safeHost(host) !== host)
+    return res.status(400).json({ ok: false, error: "bad jid" });
+  if (!sub || typeof sub.endpoint !== "string" || !/^https:\/\//.test(sub.endpoint) || !sub.keys)
+    return res.status(400).json({ ok: false, error: "bad subscription" });
+  pushStore.set(bare, { sub, last: 0 });
+  persistPush();
+  res.json({ ok: true });
+});
+app.post("/api/push/unsubscribe", lookupLimiter, (req, res) => {
+  const bare = String(req.body?.jid || "").toLowerCase().trim().split("/")[0];
+  if (pushStore.delete(bare)) persistPush();
+  res.json({ ok: true });
+});
+
+async function pushTick() {
+  if (pushStore.size === 0) return;
+  let onlineBare;
+  try {
+    const conn = await ejabberd("connected_users", {});
+    onlineBare = new Set((Array.isArray(conn) ? conn : []).map((s) => String(s).split("/")[0]));
+  } catch { return; }
+  for (const [bare, entry] of pushStore) {
+    if (onlineBare.has(bare)) { entry.last = 0; continue; }
+    const [user, host] = bare.split("@");
+    try {
+      const count = Number(await ejabberd("get_offline_count", { user, host })) || 0;
+      if (count > entry.last) {
+        entry.last = count;
+        await webpush.sendNotification(entry.sub, JSON.stringify({
+          title: "HubX",
+          body: count === 1 ? "У вас новое сообщение" : `У вас новых сообщений: ${count}`,
+        }));
+      } else if (count === 0) entry.last = 0;
+    } catch (e) {
+
+      if (e?.statusCode === 404 || e?.statusCode === 410) { pushStore.delete(bare); persistPush(); }
+    }
+  }
+}
+setInterval(pushTick, 30_000);
+
+app.get("/api/admin/sessions", requireAdmin, async (_req, res) => {
+  try {
+    const [registered, sessionRows] = await Promise.all([
+      ejabberd("registered_users", { host: XMPP_HOST }),
+      ejabberd("connected_users_info", {}).catch(() => []),
+    ]);
+
+    const liveByJid = new Map();
+    for (const s of (Array.isArray(sessionRows) ? sessionRows : [])) {
+      const bare = String(s.jid || "").split("/")[0];
+      if (!bare) continue;
+      const arr = liveByJid.get(bare) || [];
+      arr.push(s);
+      liveByJid.set(bare, arr);
+    }
+    const out = [];
+    for (const u of (Array.isArray(registered) ? registered : [])) {
+      const name = typeof u === "string" ? u : u.username || u.user;
+      if (!name) continue;
+      const jid = `${name}@${XMPP_HOST}`;
+      const live = liveByJid.get(jid);
+      const online = !!(live && live.length);
+      if (online) recordLogin(jid, normIp(live[0].ip), "ejabberd", { connection: live[0].connection || "" });
+      const rec = loginStore.get(jid);
+
+      const geo = rec?.geo || (rec?.ip ? geoCached(rec.ip) : null) || null;
+      out.push({
+        username: name, jid, online, ip: rec?.ip || null,
+        location: fmtGeo(geo), city: geo?.city || null, country: geo?.country || null, countryCode: geo?.countryCode || null,
+        connection: online ? (live[0].connection || "") : (rec?.connection || ""),
+        devices: online ? live.length : 0,
+        uptime: online ? Math.max(0, ...live.map((s) => s.uptime || 0)) : 0,
+        lastSeenTs: rec?.lastSeenTs || (online ? Date.now() : null),
+      });
+    }
+    persistStore();
+    out.sort((a, b) => Number(b.online) - Number(a.online) || (b.lastSeenTs || 0) - (a.lastSeenTs || 0) || a.username.localeCompare(b.username));
+    res.json({
+      ok: true, host: XMPP_HOST, total: out.length,
+      onlineCount: out.filter((u) => u.online).length,
+      offlineCount: out.filter((u) => !u.online).length,
+      users: out,
+    });
+  } catch (e) {
+    console.error("[admin/sessions]", e.message);
+    res.status(503).json({ ok: false, error: "Sessions unavailable" });
+  }
+});
+
+loadStore();
+pollSessions();
+setInterval(pollSessions, 20_000);
+
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { persistStore(true); process.exit(0); });
+
+app.listen(PORT, () => {
+  console.log(`[hubx-admin] listening on http://localhost:${PORT}`);
+  console.log(`[hubx-admin] ejabberd API: ${API_BASE}  host=${XMPP_HOST}`);
+  console.log(`[hubx-admin] CORS allowlist: ${ALLOWED_ORIGINS.join(", ")}`);
+  if (USING_DEFAULTS)
+    console.warn(
+      "[hubx-admin] ⚠  Using built-in demo secrets. Set ADMIN_PASS and ADMIN_API_SECRET in production."
+    );
+});

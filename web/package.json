@@ -1,0 +1,29 @@
+{
+  "name": "hubx-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HubX — modern web client for the XMPP messenger (React + Strophe.js).",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "build:secure": "npm run build && node scripts/obfuscate.mjs",
+    "preview": "vite preview --host --port 4175"
+  },
+  "dependencies": {
+    "@hugeicons/core-free-icons": "^4.2.0",
+    "@hugeicons/react": "^1.1.6",
+    "framer-motion": "^11.18.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "strophe.js": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "javascript-obfuscator": "^4.2.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
