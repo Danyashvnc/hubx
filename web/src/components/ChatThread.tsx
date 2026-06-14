@@ -7,7 +7,7 @@ import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
 import { CONFIG } from "../config";
 import {
-  Search01Icon, Call02Icon, MoreVerticalIcon, StarIcon,
+  Search01Icon, MoreVerticalIcon, StarIcon,
   Add01Icon, SmileIcon, Attachment01Icon, SentIcon, Mic01Icon, Cancel01Icon, Tick01Icon, TickDouble01Icon, Bookmark01Icon, ArrowLeft01Icon,
   PlayIcon, PauseIcon, MoreHorizontalIcon, PencilEdit01Icon, Delete01Icon, UserGroupIcon, Logout01Icon, ArrowTurnBackwardIcon, QuoteDownIcon, PinIcon, PinOffIcon, SquareLock01Icon, Clock01Icon,
   Copy01Icon, Forward01Icon, CheckmarkSquare02Icon, Alert02Icon,
@@ -215,7 +215,7 @@ function TypingDots() {
 
 export function ChatThread({
   client, contact, thread, typing, infoOpen, fav, local, room, occupants = [], mobile, onBack,
-  onToggleInfo, onToggleFav, onSend, onAttach, onEdit, onRetract, onDeleteLocal, onReact, onForward, onForwardMany, onLeaveRoom, onCall, onSoon,
+  onToggleInfo, onToggleFav, onSend, onAttach, onEdit, onRetract, onDeleteLocal, onReact, onForward, onForwardMany, onLeaveRoom, onSoon,
   forwardPreview, onConfirmForward, onCancelForward,
   pinnedIds, onPin, onUnpin,
   secret, secretInfo, onSetSecretTtl, onLeaveSecret, onVerifySecret, onSendSecretFile,
@@ -246,7 +246,6 @@ export function ChatThread({
   onConfirmForward?: (text: string) => void;
   onCancelForward?: () => void;
   onLeaveRoom?: () => void;
-  onCall: (kind: "audio" | "video") => void;
   onSoon: (msg: string) => void;
   pinnedIds?: string[];
   onPin?: (id: string) => void;
@@ -739,7 +738,6 @@ export function ChatThread({
           {secret && <button className="ic-btn" title="Удалить секретный чат" onClick={onLeaveSecret}><Icon icon={Logout01Icon} /></button>}
           {!local && !room && !secret && <>
             <button className={fav ? "ic-btn fav" : "ic-btn"} title="В избранное" onClick={onToggleFav}><Icon icon={StarIcon} /></button>
-            <button className="ic-btn" title="Аудиозвонок" onClick={() => onCall("audio")}><Icon icon={Call02Icon} /></button>
             <button className={infoOpen ? "ic-btn active" : "ic-btn"} title="Информация" onClick={onToggleInfo}><Icon icon={MoreVerticalIcon} /></button>
           </>}
         </div>

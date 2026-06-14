@@ -426,8 +426,7 @@ export function Workspace(props: {
           forwardPreview={pendingForward && pendingForward.targetJid === active.jid ? pendingForward.msgs : undefined}
           onConfirmForward={handleConfirmForward}
           onCancelForward={() => setPendingForward(null)}
-          onLeaveRoom={() => { onLeaveRoom(active.jid); setActiveJid(""); showToast("Вы вышли из группы."); }}
-          onCall={(k) => showToast(k === "audio" ? "Аудиозвонки появятся в след. версии (XMPP Jingle + WebRTC)." : "Видеозвонки появятся в след. версии (WebRTC).")} />
+          onLeaveRoom={() => { onLeaveRoom(active.jid); setActiveJid(""); showToast("Вы вышли из группы."); }} />
       );
     }
     switch (section) {
