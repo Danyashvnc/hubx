@@ -91,6 +91,7 @@ async function convert(nStr, from, to) {
   return `💱 ${n} ${FROM} = ${(n * data.rates[TO]).toFixed(2)} ${TO}`;
 }
 
+const greeted = new Set();
 function onPresence(pres) {
   const from = pres.getAttribute("from"); const type = pres.getAttribute("type");
   if (!from) return true;
@@ -99,7 +100,10 @@ function onPresence(pres) {
   if (type === "subscribe") {
     conn.send($pres({ to: j, type: "subscribed" }));
     conn.send($pres({ to: j, type: "subscribe" }));
-    setTimeout(() => say(j, `Привет, ${nick(j)}! Я бот HubX. Напиши /help — покажу команды (погода, конвертер, напоминания).`), 600);
+    if (!greeted.has(j)) {
+      greeted.add(j);
+      setTimeout(() => say(j, `Привет, ${nick(j)}! Я бот HubX. Напиши /help — покажу команды (погода, конвертер, напоминания).`), 600);
+    }
     return true;
   }
   return true;

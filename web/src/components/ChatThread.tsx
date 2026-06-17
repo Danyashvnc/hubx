@@ -1021,10 +1021,6 @@ export function ChatThread({
                   }
                 }}
                 rows={1} placeholder={uploading ? "Загрузка файла…" : forwardPreview?.length ? "Добавить сообщение (необязательно)…" : pending ? (pending.isImage ? "Подпись к фото…" : "Подпись к файлу…") : "Напишите сообщение…"} />
-              <button className="comp-ic" title={uploading ? "Загрузка…" : "Прикрепить файл"} disabled={uploading}
-                onClick={() => (local || room ? onSoon("Вложения — в личных чатах.") : fileRef.current?.click())}>
-                <Icon icon={Attachment01Icon} size={18} />
-              </button>
             </>
           )}
           <motion.button className={recording ? "comp-send recording" : "comp-send"} whileTap={{ scale: 0.9 }} whileHover={{ scale: 1.06 }}

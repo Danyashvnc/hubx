@@ -23,14 +23,16 @@ export function Auth({
   state: ConnState;
   detail?: string;
   reconnecting?: boolean;
-  onLogin: (u: string, p: string, server: { id: string; ws: string; domain: string }) => void;
+  onLogin: (u: string, p: string, server: { id: string; ws: string; domain: string }, remember: boolean) => void;
 }) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [invite, setInvite] = useState("");
+  const [email, setEmail] = useState("");
   const [serverId, setServerId] = useState(CONFIG.SERVERS[0].id);
   const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(true);
   const [notice, setNotice] = useState<string>();
   const server = CONFIG.SERVERS.find((s) => s.id === serverId) || CONFIG.SERVERS[0];
 
@@ -73,22 +75,26 @@ export function Auth({
         setNotice("Пароль — минимум 8 символов.");
         return;
       }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+        setNotice("Введите корректный e-mail.");
+        return;
+      }
       if (!invite.trim()) {
         setNotice("Нужен код‑приглашение от администратора (для демо: HUBX-DEMO).");
         return;
       }
       setBusy(true);
       try {
-        await api.register(u, password, invite.trim() || undefined);
+        await api.register(u, password, invite.trim() || undefined, email.trim());
         setNotice("Аккаунт создан, подключаемся…");
-        onLogin(u, password, server);
+        onLogin(u, password, server, remember);
       } catch (err: any) {
         setNotice(err.message || "Не удалось зарегистрировать");
       } finally {
         setBusy(false);
       }
     } else {
-      onLogin(u, password, server);
+      onLogin(u, password, server, remember);
     }
   }
 
@@ -210,6 +216,13 @@ export function Auth({
 
             {mode === "register" && server.id === "local" && (
               <label className="field">
+                <span>E-mail</span>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@mail.com" autoComplete="email" />
+              </label>
+            )}
+
+            {mode === "register" && server.id === "local" && (
+              <label className="field">
                 <span>Код‑приглашение</span>
                 <input
                   value={invite}
@@ -244,6 +257,11 @@ export function Auth({
                 </motion.div>
               )}
             </AnimatePresence>
+
+            <label className="remember-row">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>Запомнить меня на этом устройстве</span>
+            </label>
 
             <motion.button
               className="btn-primary"

@@ -34,11 +34,11 @@ async function userJsonFetch(path: string, body: unknown) {
 }
 
 export const api = {
-  async register(username: string, password: string, invite?: string) {
+  async register(username: string, password: string, invite?: string, email?: string) {
     return jsonFetch("/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, invite }),
+      body: JSON.stringify({ username, password, invite, email }),
     });
   },
 

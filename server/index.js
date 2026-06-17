@@ -8,6 +8,9 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import validator from "validator";
+import disposableList from "disposable-email-domains";
+import dns from "node:dns";
 
 const PORT       = process.env.PORT         || 4000;
 const XMPP_HOST  = process.env.XMPP_HOST    || "localhost";
@@ -404,14 +407,35 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+const DISPOSABLE_EMAIL = new Set(disposableList);
+const RESERVED_EMAIL_DOMAINS = new Set(["example.com", "example.org", "example.net", "example.edu", "test.com", "localhost", "invalid"]);
+async function validateEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!validator.isEmail(e)) return "Введите корректный e-mail.";
+  const domain = e.split("@")[1] || "";
+  if (RESERVED_EMAIL_DOMAINS.has(domain) || /\.(example|test|invalid|localhost)$/.test(domain))
+    return "Этот e-mail-домен не принимается (служебный/тестовый).";
+  if (DISPOSABLE_EMAIL.has(domain)) return "Одноразовые e-mail не принимаются.";
+  try {
+    const mx = await dns.promises.resolveMx(domain);
+    if (!mx || !mx.length) return "У домена e-mail нет почтовых серверов — проверьте адрес.";
+  } catch (err) {
+    if (err && (err.code === "ENOTFOUND" || err.code === "ENODATA")) return "Домен e-mail не существует или не принимает почту.";
+  }
+  return null;
+}
+
 app.post("/api/register", registerLimiter, async (req, res) => {
-  const { username, password, invite } = req.body || {};
+  const { username, password, email, invite } = req.body || {};
   if (!username || typeof password !== "string" || !password)
     return res.status(400).json({ ok: false, error: "username and password are required" });
   if (!/^[a-z0-9._-]{2,32}$/i.test(username))
     return res.status(400).json({ ok: false, error: "username: 2-32 chars, letters/digits/._- only" });
   if (String(password).length < 8)
     return res.status(400).json({ ok: false, error: "password must be at least 8 characters" });
+
+  const emailErr = await validateEmail(email);
+  if (emailErr) return res.status(400).json({ ok: false, error: emailErr });
 
   const inv = inviteStore.get(String(invite || ""));
   if (!inv || inv.exp < Date.now() || inv.uses >= inv.maxUses)

@@ -176,14 +176,25 @@ export function App() {
     });
   }
 
-  function login(username: string, password: string, server?: { ws: string; domain: string }) {
+  function login(username: string, password: string, server?: { ws: string; domain: string }, remember = true) {
     unlockAudio();
     requestPush();
     manualLogoutRef.current = false;
     attemptsRef.current = 0;
     credsRef.current = { username, password, server };
+    try {
+      if (remember) localStorage.setItem("hubx.session", JSON.stringify({ u: username, p: password, server }));
+      else localStorage.removeItem("hubx.session");
+    } catch {  }
     doConnect(username, password, server, false);
   }
+
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("hubx.session") || "null");
+      if (s && s.u && s.p) login(s.u, s.p, s.server, true);
+    } catch {  }
+  }, []);
 
   function doConnect(username: string, password: string, server: { ws: string; domain: string } | undefined, isReconnect: boolean) {
     const srv = server || { ws: CONFIG.WS_URL, domain: CONFIG.DOMAIN };
@@ -573,6 +584,7 @@ export function App() {
   function logout() {
     manualLogoutRef.current = true;
     credsRef.current = null;
+    try { localStorage.removeItem("hubx.session"); } catch {  }
     setReconnecting(false);
     window.clearTimeout(reconnectTimer.current);
     clearAdminToken();
