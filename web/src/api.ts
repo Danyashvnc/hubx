@@ -2,9 +2,11 @@ import { CONFIG } from "./config";
 import type { DirectoryUser, AdminSession } from "./types";
 
 let adminToken: string | null = null;
-let userToken: string | null = null; // per-user session token (for room invite-link / join)
+let userToken: string | null = null;
+let reauth: (() => Promise<boolean>) | null = null;
 export function clearAdminToken() { adminToken = null; }
 export function clearUserToken() { userToken = null; }
+export function setReauth(fn: (() => Promise<boolean>) | null) { reauth = fn; }
 
 async function jsonFetch(path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = { ...(init.headers as any) };
@@ -16,6 +18,21 @@ async function jsonFetch(path: string, init: RequestInit = {}) {
   return data;
 }
 
+async function userJsonFetch(path: string, body: unknown) {
+  const call = () => jsonFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!userToken && reauth) { try { await reauth(); } catch {  } }
+  try {
+    return await call();
+  } catch (e) {
+    if (reauth && (await reauth().catch(() => false))) return await call();
+    throw e;
+  }
+}
+
 export const api = {
   async register(username: string, password: string, invite?: string) {
     return jsonFetch("/api/register", {
@@ -25,7 +42,6 @@ export const api = {
     });
   },
 
-  // Admin: invite codes that gate self-registration.
   async createInvite(maxUses?: number, ttlDays?: number): Promise<string | null> {
     try {
       const d = await jsonFetch("/api/invites", {
@@ -92,7 +108,6 @@ export const api = {
     } catch {  }
   },
 
-  // Obtain a per-user session token (proves control of the JID via the XMPP password).
   async authToken(username: string, password: string, host: string): Promise<boolean> {
     try {
       const data = await jsonFetch("/api/auth/token", {
@@ -107,22 +122,14 @@ export const api = {
 
   async roomInviteLink(room: string, _jid: string, ttlMs: number): Promise<string | null> {
     try {
-      const data = await jsonFetch("/api/rooms/invite-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}) },
-        body: JSON.stringify({ room, ttlMs }),
-      });
+      const data = await userJsonFetch("/api/rooms/invite-link", { room, ttlMs });
       return data.token || null;
     } catch { return null; }
   },
 
   async roomJoin(token: string, _jid: string): Promise<string | null> {
     try {
-      const data = await jsonFetch("/api/rooms/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}) },
-        body: JSON.stringify({ token }),
-      });
+      const data = await userJsonFetch("/api/rooms/join", { token });
       return data.room || null;
     } catch { return null; }
   },
@@ -137,13 +144,13 @@ export const api = {
     }
   },
 
-  async userExists(username: string, host?: string): Promise<boolean> {
+  async userExists(username: string, host?: string): Promise<boolean | "unknown"> {
     try {
       const q = `u=${encodeURIComponent(username)}${host ? `&host=${encodeURIComponent(host)}` : ""}`;
       const data = await jsonFetch(`/api/user-exists?${q}`);
       return !!data.exists;
     } catch {
-      return true;
+      return "unknown";
     }
   },
 };

@@ -23,9 +23,8 @@ const ADMIN_USERS = (process.env.ADMIN_USERS || ADMIN_JID.split("@")[0])
   .split(",").map((s) => s.trim().toLowerCase());
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 
-// H5: refuse to start with missing/default secrets unless ALLOW_INSECURE=1 (local dev).
 const ALLOW_INSECURE = process.env.ALLOW_INSECURE === "1";
-// A weak placeholder that must never be accepted as a real admin password.
+
 const DEFAULT_ADMIN_PASS = "AdminHubX2025!";
 const adminPassFromEnv = process.env.ADMIN_PASS;
 const adminPassMissingOrDefault = !adminPassFromEnv || adminPassFromEnv === DEFAULT_ADMIN_PASS;
@@ -40,22 +39,16 @@ if ((adminPassMissingOrDefault || apiSecretMissing) && !ALLOW_INSECURE) {
   process.exit(1);
 }
 
-// No fixed admin password lives in source. With ALLOW_INSECURE we generate a random one
-// (so credentials are unusable rather than a known constant) unless one is provided.
-const ADMIN_PASS = adminPassFromEnv && adminPassFromEnv !== DEFAULT_ADMIN_PASS
+const ADMIN_PASS = adminPassFromEnv && (ALLOW_INSECURE || adminPassFromEnv !== DEFAULT_ADMIN_PASS)
   ? adminPassFromEnv
   : crypto.randomBytes(24).toString("base64url");
 
-// ADMIN_API_SECRET is required; a random per-process secret is only allowed under ALLOW_INSECURE
-// (which also invalidates previously issued tokens on every restart).
 const API_SECRET = process.env.ADMIN_API_SECRET || crypto.randomBytes(32).toString("hex");
 
 const USING_DEFAULTS = adminPassMissingOrDefault || apiSecretMissing;
 
 const AUTH = "Basic " + Buffer.from(`${ADMIN_JID}:${ADMIN_PASS}`).toString("base64");
 
-// M9: per-process token epoch. Bumped to invalidate previously issued admin tokens
-// (e.g. when an admin account is deleted).
 let tokenEpoch = 1;
 
 async function ejabberd(command, args = {}) {
@@ -102,8 +95,7 @@ if (!vapid?.publicKey || !vapid?.privateKey) {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(VAPID_FILE, JSON.stringify(vapid), { mode: 0o600 }); } catch {  }
 }
 webpush.setVapidDetails("mailto:admin@hubx.local", vapid.publicKey, vapid.privateKey);
-// L10: cap subscriptions stored per JID. Each store entry holds up to MAX_SUBS_PER_JID
-// distinct subscriptions (newest kept) plus a shared "last notified offline count".
+
 const MAX_SUBS_PER_JID = 5;
 const pushStore = new Map();
 try {
@@ -120,10 +112,8 @@ function persistPush() {
   } catch {  }
 }
 
-// Invite-code registration: gate self-registration behind admin-issued codes.
-// Store shape: { code: { code, createdBy, createdAt, exp, maxUses, uses } } keyed by code.
 const INVITES_FILE = path.join(DATA_DIR, "invites.json");
-const MAX_INVITES = 5000; // bound the store
+const MAX_INVITES = 5000;
 const inviteStore = new Map();
 try {
   const j = JSON.parse(fs.readFileSync(INVITES_FILE, "utf8"));
@@ -137,7 +127,19 @@ function persistInvites() {
     fs.writeFileSync(INVITES_FILE, JSON.stringify(Object.fromEntries(inviteStore)), { mode: 0o600 });
   } catch (e) { console.error("[invites persist]", e.message); }
 }
-// Remove expired / fully-used invites. Returns true if anything was dropped.
+
+const DEMO_INVITE = process.env.DEMO_INVITE || (ALLOW_INSECURE ? "HUBX-DEMO" : null);
+if (DEMO_INVITE) {
+  inviteStore.set(DEMO_INVITE, {
+    code: DEMO_INVITE,
+    createdBy: "system",
+    createdAt: Date.now(),
+    exp: Date.now() + 365 * 864e5,
+    maxUses: 100000,
+    uses: 0,
+  });
+}
+
 function pruneInvites() {
   const now = Date.now();
   let changed = false;
@@ -155,9 +157,6 @@ function normIp(ip) {
 const RETENTION_MS = Number(process.env.IP_RETENTION_MS) || 30 * 24 * 3600 * 1000;
 const GEO_CAP_PER_TICK = 10;
 
-// M6: only trust cf-connecting-ip when the immediate TCP peer is a configured proxy.
-// TRUSTED_PROXY_IPS is a comma list of CIDRs (IPv4 or IPv6). If unset, the header is
-// never trusted and we fall back to req.ip.
 const TRUSTED_PROXY_CIDRS = (process.env.TRUSTED_PROXY_IPS || "")
   .split(",").map((s) => s.trim()).filter(Boolean)
   .map((cidr) => {
@@ -173,7 +172,7 @@ const TRUSTED_PROXY_CIDRS = (process.env.TRUSTED_PROXY_IPS || "")
 
 function ipToBytes(ip, fam) {
   if (fam === 4) return ip.split(".").map(Number);
-  // Expand IPv6 to 16 bytes.
+
   let s = ip;
   const dual = s.match(/^(.*:)((\d+\.){3}\d+)$/);
   if (dual) {
@@ -341,18 +340,25 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
+function requireLocal(req, res, next) {
+  if (!isPrivateIp(clientIp(req)))
+    return res.status(403).json({ ok: false, error: "Админ-доступ разрешён только из локальной сети" });
+  next();
+}
+
 function requireAdmin(req, res, next) {
+  if (!isPrivateIp(clientIp(req)))
+    return res.status(403).json({ ok: false, error: "Админ-доступ разрешён только из локальной сети" });
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   const payload = verifyToken(token);
-  // M9: reject admin tokens minted before the current epoch (revocation).
+
   if (!payload || payload.t === "user" || (payload.epoch || 0) < tokenEpoch)
     return res.status(401).json({ ok: false, error: "Unauthorized" });
   req.admin = payload;
   next();
 }
 
-// User-session middleware: only accepts tokens minted by POST /api/auth/token.
 function requireUser(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -366,9 +372,6 @@ function requireUser(req, res, next) {
 const app = express();
 app.disable("x-powered-by");
 
-// M7: precise trust-proxy setting so express-rate-limit keys on the real client IP.
-// Explicit allowlist via TRUST_PROXY (comma list of IPs/CIDRs/named subnets) takes
-// precedence; otherwise trust a fixed number of hops (default 1).
 app.set("trust proxy",
   process.env.TRUST_PROXY
     ? process.env.TRUST_PROXY.split(",").map((s) => s.trim()).filter(Boolean)
@@ -388,12 +391,12 @@ app.use(express.json({ limit: "16kb" }));
 
 const registerLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
 const loginLimiter    = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
-// M8: limiter for room joins, keyed on client IP.
+
 const joinLimiter     = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
 
 app.get("/api/health", async (_req, res) => {
   try {
-    // M8: cache the ejabberd status probe for ~5s to avoid hammering it per request.
+
     await cached("health:status", 5000, () => ejabberd("status"));
     res.json({ ok: true, xmppHost: XMPP_HOST });
   } catch {
@@ -410,17 +413,13 @@ app.post("/api/register", registerLimiter, async (req, res) => {
   if (String(password).length < 8)
     return res.status(400).json({ ok: false, error: "password must be at least 8 characters" });
 
-  // Invite gate: required unless ALLOW_INSECURE=1 (local dev keeps registration open).
-  let inv = null;
-  if (!ALLOW_INSECURE) {
-    inv = inviteStore.get(String(invite || ""));
-    if (!inv || inv.exp < Date.now() || inv.uses >= inv.maxUses)
-      return res.status(403).json({ ok: false, error: "нужен код-приглашение" });
-  }
+  const inv = inviteStore.get(String(invite || ""));
+  if (!inv || inv.exp < Date.now() || inv.uses >= inv.maxUses)
+    return res.status(403).json({ ok: false, error: "нужен код-приглашение" });
 
   try {
     await ejabberd("register", { user: username.toLowerCase(), host: XMPP_HOST, password });
-    // Consume the invite only after a successful registration.
+
     if (inv) {
       inv.uses += 1;
       if (inv.uses >= inv.maxUses) inviteStore.delete(inv.code);
@@ -435,7 +434,6 @@ app.post("/api/register", registerLimiter, async (req, res) => {
   }
 });
 
-// --- Invite-code management (admin only) ---
 app.post("/api/invites", requireAdmin, (req, res) => {
   if (inviteStore.size >= MAX_INVITES) {
     pruneInvites();
@@ -475,9 +473,12 @@ app.delete("/api/invites/:code", requireAdmin, (req, res) => {
 const lookupLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
 app.get("/api/user-exists", lookupLimiter, async (req, res) => {
   const user = String(req.query.u || "").toLowerCase().trim();
+  const rawHost = String(req.query.host || "").toLowerCase().trim();
   const host = safeHost(req.query.host);
   if (!user || !/^[a-z0-9._-]{1,64}$/i.test(user))
     return res.json({ ok: true, exists: false });
+  if (rawHost && !ALLOWED_HOSTS.includes(rawHost))
+    return res.json({ ok: true, exists: true, remote: true });
   try {
 
     const r = await ejabberd("check_account", { user, host });
@@ -489,7 +490,7 @@ app.get("/api/user-exists", lookupLimiter, async (req, res) => {
   }
 });
 
-app.post("/api/admin/login", loginLimiter, async (req, res) => {
+app.post("/api/admin/login", requireLocal, loginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
   const user = String(username || "").toLowerCase();
   if (!user || typeof password !== "string" || !password)
@@ -511,8 +512,6 @@ app.post("/api/admin/login", loginLimiter, async (req, res) => {
   }
 });
 
-// User-session tokens: exchange XMPP credentials for a signed user token.
-// Closes the invite-link auth gap by giving rooms endpoints a verified caller JID.
 app.post("/api/auth/token", loginLimiter, async (req, res) => {
   const { username, password, host } = req.body || {};
   const user = String(username || "").toLowerCase().trim();
@@ -527,7 +526,7 @@ app.post("/api/auth/token", loginLimiter, async (req, res) => {
     res.json({ ok: true, token: signToken({ t: "user", jid: `${user}@${safeH}`, exp }), exp });
   } catch (e) {
     console.error("[auth/token]", e.message);
-    // Avoid leaking whether the failure was bad creds vs. backend error.
+
     res.status(401).json({ ok: false, error: "Invalid credentials" });
   }
 });
@@ -589,7 +588,7 @@ app.delete("/api/users/:username", requireAdmin, async (req, res) => {
   try {
     await ejabberd("unregister", { user: target, host: XMPP_HOST });
     loginStore.delete(`${target}@${XMPP_HOST}`); storeDirty = true; lastPersist = 0; persistStore();
-    // M9: if an admin account was removed, invalidate all outstanding admin tokens.
+
     if (ADMIN_USERS.includes(target)) tokenEpoch++;
     res.json({ ok: true });
   } catch (e) {
@@ -619,7 +618,7 @@ app.post("/api/session/beacon", lookupLimiter, async (req, res) => {
 
 app.post("/api/rooms/invite-link", lookupLimiter, requireUser, async (req, res) => {
   const room = String(req.body?.room || "").toLowerCase().trim();
-  // Auth gap fix: the caller JID comes from the verified token, never the body.
+
   const jid = req.userJid;
   if (!/^[^@\s]+@conference\.[^@\s]+$/.test(room))
     return res.status(400).json({ ok: false, error: "bad room" });
@@ -630,7 +629,7 @@ app.post("/api/rooms/invite-link", lookupLimiter, requireUser, async (req, res) 
     const mine = (Array.isArray(affs) ? affs : []).find((a) => String(a.jid || "").toLowerCase() === jid);
     if (!mine || !["owner", "admin"].includes(mine.affiliation))
       return res.status(403).json({ ok: false, error: "ссылку может создать только админ группы" });
-    // M9: cap invite-link lifetime at 30 days.
+
     const ttl = Math.min(Math.max(Number(req.body?.ttlMs) || 7 * 864e5, 60_000), 30 * 864e5);
     const token = signToken({ t: "muc-invite", room, exp: Date.now() + ttl });
     res.json({ ok: true, token });
@@ -638,7 +637,7 @@ app.post("/api/rooms/invite-link", lookupLimiter, requireUser, async (req, res) 
 });
 app.post("/api/rooms/join", joinLimiter, requireUser, async (req, res) => {
   const p = verifyToken(String(req.body?.token || ""));
-  // Auth gap fix: only the authenticated user can be added; body jid is ignored.
+
   const jid = req.userJid;
   if (!p || p.t !== "muc-invite") return res.status(403).json({ ok: false, error: "ссылка недействительна или истекла" });
   const [user, host] = jid.split("@");
@@ -647,7 +646,6 @@ app.post("/api/rooms/join", joinLimiter, requireUser, async (req, res) => {
   try {
     const [name, service] = p.room.split("@");
 
-    // Do not downgrade an outcast (banned) user back to member.
     const affs = await ejabberd("get_room_affiliations", { room: name, service });
     const existing = (Array.isArray(affs) ? affs : []).find((a) => String(a.jid || "").toLowerCase() === jid);
     if (existing && existing.affiliation === "outcast")
@@ -665,12 +663,12 @@ app.post("/api/push/subscribe", lookupLimiter, (req, res) => {
   const [user, host] = bare.split("@");
   if (!user || !/^[a-z0-9._-]{1,64}$/.test(user) || safeHost(host) !== host)
     return res.status(400).json({ ok: false, error: "bad jid" });
-  // L10: validate subscription shape, including the keys block.
+
   if (!sub || typeof sub.endpoint !== "string" || !/^https:\/\//.test(sub.endpoint) ||
       typeof sub.keys?.p256dh !== "string" || typeof sub.keys?.auth !== "string")
     return res.status(400).json({ ok: false, error: "bad subscription" });
   const entry = pushStore.get(bare) || { subs: [], last: 0 };
-  // De-dupe by endpoint, then cap the number of stored subscriptions per JID (newest kept).
+
   entry.subs = [...entry.subs.filter((s) => s.endpoint !== sub.endpoint), sub].slice(-MAX_SUBS_PER_JID);
   pushStore.set(bare, entry);
   persistPush();
@@ -712,7 +710,7 @@ async function pushTick() {
         }
       } else if (count === 0) entry.last = 0;
     } catch (e) {
-      // Per-subscription send errors are handled above; nothing to prune here.
+
       void e;
     }
   }

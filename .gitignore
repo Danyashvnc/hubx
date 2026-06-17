@@ -10,3 +10,4 @@ dist/
 certs/
 server/data/
 examples/hubx-bot/reminders.json
+report-build/

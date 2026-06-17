@@ -73,10 +73,6 @@ export async function importIdentityPub(jwk: JsonWebKey): Promise<CryptoKey> {
   return crypto.subtle.importKey("jwk", jwk, ECDSA, true, ["verify"]);
 }
 
-// H2: the signature must bind the ephemeral key to the signer JID, the
-// recipient JID and a direction tag ("init"/"ack") so a signature can never
-// be replayed across contexts (unknown-key-share) or reused in the other
-// direction. Payload = `${ctx}|${fromJid}|${toJid}|${x}.${y}`.
 function sigPayload(ctx: string, fromJid: string, toJid: string, ephemeralPub: JsonWebKey): string {
   return `${ctx}|${fromJid}|${toJid}|${ephemeralPub.x}.${ephemeralPub.y}`;
 }

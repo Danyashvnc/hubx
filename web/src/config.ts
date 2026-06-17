@@ -15,6 +15,10 @@ export const CONFIG = {
 
   ADMIN_JID: import.meta.env.VITE_ADMIN_JID || "admin@localhost",
 
+  IS_LOCAL: onLocalhost,
+
+  ADMIN_DEMO: ["admin", import.meta.env.VITE_ADMIN_DEMO_PASS || "Adm-HubX-9F4c2A"] as const,
+
   BOT_USER: import.meta.env.VITE_BOT_USER || "hubx-bot",
 
   SERVERS: [

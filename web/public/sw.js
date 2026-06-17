@@ -1,14 +1,13 @@
-// HubX service worker: closed-tab Web Push notifications.
-// The push payload carries ONLY a count ("у вас N новых сообщений") — message
-// content never goes through the push gateway (it stays inside XMPP/E2E).
+
+
 self.addEventListener("push", (e) => {
   let d = {};
-  try { d = e.data ? e.data.json() : {}; } catch { /* */ }
+  try { d = e.data ? e.data.json() : {}; } catch {}
   e.waitUntil(self.registration.showNotification(d.title || "HubX", {
     body: d.body || "У вас новые сообщения",
     icon: "/logo.png",
     badge: "/logo.png",
-    tag: "hubx-offline", // collapse repeated count pushes into one
+    tag: "hubx-offline",
   }));
 });
 

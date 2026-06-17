@@ -19,15 +19,6 @@ import { useMediaQuery } from "../hooks";
 import { useNotif, setNotif, setMyPresence, getPushPermission, requestPush, setMutedJids } from "../notify";
 import { UserGroupIcon, Cancel01Icon, Crown03Icon, Shield01Icon } from "@hugeicons/core-free-icons";
 
-export const WALLPAPERS = [
-  { id: "aurora", label: "Аврора" },
-  { id: "mesh", label: "Mesh синий" },
-  { id: "graphite", label: "Графит" },
-  { id: "sunset", label: "Закат" },
-  { id: "forest", label: "Лес" },
-  { id: "solid", label: "Сплошной" },
-  { id: "none", label: "Без фона" },
-];
 
 const SAVED = "__saved__";
 const savedContact: Contact = { jid: SAVED, name: "Сохранённые сообщения", presence: "online" };
@@ -59,6 +50,7 @@ export function Workspace(props: {
   onSendSecret: (convJid: string, body: string) => void;
   onSendSecretFile: (convJid: string, file: Blob, fileName: string, caption?: string) => void;
   onSetSecretTtl: (convJid: string, ttl: number) => void;
+  onSecretRead: (convJid: string) => void;
   onLeaveSecret: (convJid: string) => void;
   requests: string[];
   subStatus: Record<string, "active" | "out" | "in">;
@@ -70,7 +62,7 @@ export function Workspace(props: {
   onLoadOlder: (jid: string) => Promise<boolean>;
   onSetPresence: (p: Presence, msg?: string) => void; onLogout: () => void;
 }) {
-  const { client, selfJid, isAdmin, hydrated, contacts, messages, typing, onSend, onAttach, onEdit, onRetract, onDeleteLocal, onReact, onClearConversation, blocked, onBlock, onUnblock, occupants, onJoinRoom, onSendGroup, onLeaveRoom, onSetAffiliation, onInviteToRoom, secretState, secretIds, onVerifySecret, onStartSecret, onSendSecret, onSendSecretFile, onSetSecretTtl, onLeaveSecret, requests, subStatus, onAcceptRequest, onDeclineRequest, displayName, onSaveProfile, onResolveVCard, onLoadOlder, onStartChat, onSetPresence, onLogout } = props;
+  const { client, selfJid, isAdmin, hydrated, contacts, messages, typing, onSend, onAttach, onEdit, onRetract, onDeleteLocal, onReact, onClearConversation, blocked, onBlock, onUnblock, occupants, onJoinRoom, onSendGroup, onLeaveRoom, onSetAffiliation, onInviteToRoom, secretState, secretIds, onVerifySecret, onStartSecret, onSendSecret, onSendSecretFile, onSetSecretTtl, onSecretRead, onLeaveSecret, requests, subStatus, onAcceptRequest, onDeclineRequest, displayName, onSaveProfile, onResolveVCard, onLoadOlder, onStartChat, onSetPresence, onLogout } = props;
 
   const [section, setSection] = useState<Section>("home");
   const [activeJid, setActiveJid] = useState("");
@@ -109,7 +101,6 @@ export function Workspace(props: {
 
   const [infoOpen, setInfoOpen] = useState(() => typeof window === "undefined" || !window.matchMedia("(max-width: 1180px)").matches);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [wallpaper, setWallpaper] = useState<string>(() => localStorage.getItem("hubx.wall") || "aurora");
   const [toast, setToast] = useState<string>();
   const [saved, setSaved] = useState<ChatMessage[]>([]);
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null);
@@ -126,7 +117,6 @@ export function Workspace(props: {
   const narrow = useMediaQuery("(max-width: 1180px)");
 
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
-  useEffect(() => { document.documentElement.dataset.wall = wallpaper; localStorage.setItem("hubx.wall", wallpaper); }, [wallpaper]);
 
   useEffect(() => {
     if (!selfJid) return;
@@ -176,14 +166,13 @@ export function Workspace(props: {
     prefsSaveTimer.current = window.setTimeout(() => {
       client.savePrivate("prefs", { favorites, muted, archived, pinned }).catch(warnPrefsSync);
     }, 1500);
-    // L8: flush the pending remote save on account switch / unmount so it isn't lost.
+
     return () => {
       window.clearTimeout(prefsSaveTimer.current);
       if (prefsLoaded.current) client.savePrivate("prefs", { favorites, muted, archived, pinned }).catch(() => {  });
     };
   }, [favorites, muted, archived, pinned, selfJid]);
 
-  // M4: mirror muted chats into notify so sound + desktop push respect per-chat mute.
   useEffect(() => { setMutedJids(Object.keys(muted).filter((j) => muted[j])); }, [muted]);
 
   useEffect(() => {
@@ -244,6 +233,13 @@ export function Workspace(props: {
     window.addEventListener("hubx:toast", h);
     return () => window.removeEventListener("hubx:toast", h);
   });
+
+  useEffect(() => {
+    if (active?.isSecret && !document.hidden) onSecretRead(active.jid);
+    const onVis = () => { if (!document.hidden && active?.isSecret) onSecretRead(active.jid); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [active?.jid, active?.isSecret, thread.length, onSecretRead]);
   function openChat(jid: string) {
     setActiveJid(jid);
     setPendingForward((pf) => (pf && pf.targetJid !== jid ? null : pf));
@@ -251,7 +247,7 @@ export function Workspace(props: {
     if (jid !== SAVED) { seen.current[jid] = (messages[jid] || []).length; setUnread((u) => ({ ...u, [jid]: 0 })); }
 
     const c = contacts.find((x) => x.jid === jid);
-    if (c && !c.isRoom && !c.isSecret && jid !== SAVED) onResolveVCard(jid);
+    if (c && !c.isSecret && jid !== SAVED) onResolveVCard(jid);
   }
   function openChatWith(jid: string) {
     if (!contacts.some((c) => c.jid === jid)) onStartChat(jid.split("@")[0]);
@@ -260,11 +256,18 @@ export function Workspace(props: {
   function newChat() { setActiveJid(""); setSection("home"); setTimeout(() => searchRef.current?.focus(), 60); }
 
   async function ensureExists(name: string): Promise<boolean> {
-    const u = name.includes("@") ? name.split("@")[0] : name;
-    const host = name.includes("@") ? name.split("@")[1] : (selfJid.split("@")[1] || "");
-    const ok = await api.userExists(u, host || undefined);
-    if (!ok) showToast(`Пользователя «${name}» не существует`);
-    return ok;
+    const u = (name.includes("@") ? name.split("@")[0] : name).toLowerCase();
+    const myHost = selfJid.split("@")[1] || "";
+    const host = name.includes("@") ? name.split("@")[1] : myHost;
+    if (!/^[a-z0-9._-]{1,64}$/.test(u)) {
+      showToast("Недопустимое имя пользователя: латиница, цифры, точка, дефис, подчёркивание");
+      return false;
+    }
+    if (host && host !== myHost) return true;
+    const res = await api.userExists(u, host || undefined);
+    if (res === false) { showToast(`Пользователя «${name}» не существует`); return false; }
+    if (res === "unknown") { showToast("Не удалось проверить пользователя: сервер недоступен, попробуйте ещё раз"); return false; }
+    return true;
   }
   async function handleNewChatEnter() {
     const n = search.trim(); if (!n) return;
@@ -415,7 +418,7 @@ export function Workspace(props: {
           mobile={mobile} onBack={() => setActiveJid("")}
           onToggleInfo={() => setInfoOpen((o) => !o)} onToggleFav={() => toggleFav(active.jid)}
           onSend={(b, reply) => handleSend(active.jid, b, reply)} onAttach={onAttach} onSoon={showToast}
-          onLoadOlder={!isSaved && !active.isRoom && !active.isSecret ? () => onLoadOlder(active.jid) : undefined}
+          onLoadOlder={!isSaved && !active.isSecret ? () => onLoadOlder(active.jid) : undefined}
           pinnedIds={pinned[active.jid] || []}
           onPin={(id) => { setPinned((p) => ({ ...p, [active.jid]: Array.from(new Set([...(p[active.jid] || []), id])) })); showToast("Сообщение закреплено"); }}
           onUnpin={(id) => { setPinned((p) => { const arr = (p[active.jid] || []).filter((x) => x !== id); const n = { ...p }; if (arr.length) n[active.jid] = arr; else delete n[active.jid]; return n; }); showToast("Сообщение откреплено"); }}
@@ -434,7 +437,7 @@ export function Workspace(props: {
       case "admin": return <AdminPanel selfJid={selfJid} onOpenChat={openChatWith} />;
       case "groups": return <GroupsView rooms={contacts.filter((c) => c.isRoom)} occupants={occupants} onCreate={createRoom} onJoinLink={joinByLink} onOpen={openChat} />;
       case "notifications": return <NotificationsView activity={activity} />;
-      case "settings": return <SettingsView selfJid={selfJid} isAdmin={isAdmin} theme={theme} wallpaper={wallpaper} onWallpaper={setWallpaper} onToggleTheme={() => setTheme((t) => t === "dark" ? "light" : "dark")} onLogout={onLogout} />;
+      case "settings": return <SettingsView selfJid={selfJid} isAdmin={isAdmin} theme={theme} onToggleTheme={() => setTheme((t) => t === "dark" ? "light" : "dark")} onLogout={onLogout} />;
       default: return <Home selfJid={selfJid} online={contacts.filter((c) => c.presence === "online").length} total={contacts.length}
         presence={presence} statusMsg={statusMsg} onChangePresence={changePresence} onSelect={selectSection} onNewChat={newChat} activity={activity} />;
     }
@@ -452,7 +455,7 @@ export function Workspace(props: {
         onlineOnly={onlineOnly} onTab={setTab} onSearch={setSearch} onToggleOnline={() => setOnlineOnly((o) => !o)}
         onSelect={openChat} onNewChat={handleNewChatEnter} onNewSecret={() => { const n = search.trim(); if (n) createSecret(n); }}
         requests={requests} onAcceptRequest={onAcceptRequest} onDeclineRequest={(jid) => { onDeclineRequest(jid); }}
-        dirResults={dirResults} onOpenDirUser={openFromDirectory} />
+        dirResults={dirResults} onOpenDirUser={openFromDirectory} selfHost={selfJid.split("@")[1]} />
 
       <main className="ws-main">{mainContent()}</main>
 
@@ -464,7 +467,7 @@ export function Workspace(props: {
               onInvite={(user) => { onInviteToRoom(active.jid, user); showToast(`Приглашение отправлено: ${user}`); }}
               onInviteLink={async (ttlMs) => {
                 const token = await api.roomInviteLink(active.jid, selfJid, ttlMs);
-                if (!token) { showToast("Не удалось создать ссылку (нужны права админа группы)"); return; }
+                if (!token) { showToast("Не удалось создать ссылку. Проверьте, что вы админ группы, и попробуйте ещё раз."); return; }
                 const link = `${location.origin}${location.pathname}#join=${token}`;
                 try { await navigator.clipboard.writeText(link); showToast("Ссылка-приглашение скопирована в буфер"); }
                 catch { showToast(link); }
@@ -687,44 +690,46 @@ function NotificationsView({ activity }: { activity: { id: string; icon: string;
   );
 }
 
-function SettingsView({ selfJid, isAdmin, theme, wallpaper, onWallpaper, onToggleTheme, onLogout }: { selfJid: string; isAdmin: boolean; theme: string; wallpaper: string; onWallpaper: (w: string) => void; onToggleTheme: () => void; onLogout: () => void }) {
+function SettingsView({ selfJid, isAdmin, theme, onToggleTheme, onLogout }: { selfJid: string; isAdmin: boolean; theme: string; onToggleTheme: () => void; onLogout: () => void }) {
+  const user = selfJid.split("@")[0] || "user";
   return (
-    <div className="section-view">
+    <div className="section-view settings-view">
       <h2>Настройки</h2>
-      <div className="hp" style={{ maxWidth: 560 }}>
-        <div className="hp-title">Аккаунт</div>
-        <div className="info-row"><span>Jabber ID</span><b>{selfJid}</b></div>
-        <div className="info-row"><span>Сервер</span><b>{CONFIG.DOMAIN}</b></div>
-        <div className="info-row"><span>Роль</span><b>{isAdmin ? "Администратор" : "Пользователь"}</b></div>
-      </div>
-      <div className="hp" style={{ maxWidth: 560, marginTop: 14 }}>
-        <div className="hp-title">Оформление</div>
-        <button className="hp-toggle toggle-btn" onClick={onToggleTheme}><span>Тёмная тема</span><span className={`switch ${theme === "dark" ? "on" : ""}`}><span className="knob" /></span></button>
-      </div>
-      <div className="hp" style={{ maxWidth: 560, marginTop: 14 }}>
-        <div className="hp-title">Уведомления</div>
-        <NotifToggle k="sound" label="Звуковые уведомления" />
-        <NotifToggle k="push" label="Уведомления на рабочем столе" />
-        <NotifToggle k="preview" label="Показывать превью сообщений" />
-        <NotifToggle k="online" label="Уведомлять, когда контакт в сети" />
-        <PushPermissionRow />
-      </div>
-      <div className="hp" style={{ maxWidth: 560, marginTop: 14 }}>
-        <div className="hp-title">Фон чата</div>
-        <div className="wall-grid">
-          {WALLPAPERS.map((w) => (
-            <button key={w.id} className={wallpaper === w.id ? "wall-swatch active" : "wall-swatch"} data-wall={w.id} onClick={() => onWallpaper(w.id)} title={w.label}>
-              <span className="wall-prev" data-wall={w.id} />
-              <span className="wall-label">{w.label}</span>
-            </button>
-          ))}
+      <div className="settings-wrap">
+        <div className="set-hero">
+          <div className="set-hero-av">{user.slice(0, 2).toUpperCase()}</div>
+          <div className="set-hero-info">
+            <div className="set-hero-name">{user}</div>
+            <div className="set-hero-jid">{selfJid}</div>
+            <span className="set-hero-role">{isAdmin ? "Администратор" : "Пользователь"}</span>
+          </div>
+          <button className="set-logout" onClick={onLogout}>Выйти</button>
+        </div>
+        <div className="settings-grid">
+          <div className="hp">
+            <div className="hp-title">Аккаунт</div>
+            <div className="info-row"><span>Jabber ID</span><b>{selfJid}</b></div>
+            <div className="info-row"><span>Сервер</span><b>{CONFIG.DOMAIN}</b></div>
+            <div className="info-row"><span>Роль</span><b>{isAdmin ? "Администратор" : "Пользователь"}</b></div>
+          </div>
+          <div className="hp">
+            <div className="hp-title">Оформление</div>
+            <button className="hp-toggle toggle-btn" onClick={onToggleTheme}><span>Тёмная тема</span><span className={`switch ${theme === "dark" ? "on" : ""}`}><span className="knob" /></span></button>
+          </div>
+          <div className="hp">
+            <div className="hp-title">Уведомления</div>
+            <NotifToggle k="sound" label="Звуковые уведомления" />
+            <NotifToggle k="push" label="Уведомления на рабочем столе" />
+            <NotifToggle k="preview" label="Показывать превью сообщений" />
+            <NotifToggle k="online" label="Уведомлять, когда контакт в сети" />
+            <PushPermissionRow />
+          </div>
+          <div className="hp">
+            <div className="hp-title with-ic"><Icon icon={Shield01Icon} size={15} /> Безопасность</div>
+            <p className="muted" style={{ margin: "6px 0 0", lineHeight: 1.6 }}>SASL SCRAM, admin-API на HMAC-токенах, CORS-аллоулист, helmet и rate-limit. Секретные чаты: сквозное шифрование ECDH P-256 + AES-GCM, транспорт TLS.</p>
+          </div>
         </div>
       </div>
-      <div className="hp" style={{ maxWidth: 560, marginTop: 14 }}>
-        <div className="hp-title with-ic"><Icon icon={Shield01Icon} size={15} /> Безопасность</div>
-        <p className="muted" style={{ margin: "6px 0 0", lineHeight: 1.6 }}>SASL SCRAM, admin-API на HMAC-токенах, CORS-аллоулист и helmet. Для E2E планируется OMEMO (XEP-0384), транспорт — TLS.</p>
-      </div>
-      <button className="danger-btn" style={{ marginTop: 18 }} onClick={onLogout}>Выйти из аккаунта</button>
     </div>
   );
 }

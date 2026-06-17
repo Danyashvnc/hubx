@@ -130,6 +130,7 @@ export class XmppClient {
   bareJid = "";
   domain: string;
   private roomNick = new Map<string, string>();
+  private handlerRefs: any[] = [];
 
   constructor(wsUrl: string = CONFIG.WS_URL, domain: string = CONFIG.DOMAIN) {
     this.domain = domain;
@@ -179,19 +180,40 @@ export class XmppClient {
     } catch {
 
     }
+    this.clearHandlers();
+    (Object.keys(this.listeners) as (keyof Events)[]).forEach((k) =>
+      this.listeners[k].clear()
+    );
+  }
+
+  private clearHandlers() {
+    this.handlerRefs.forEach((ref) => {
+      try {
+        this.conn.deleteHandler(ref);
+      } catch {
+
+      }
+    });
+    this.handlerRefs = [];
   }
 
   private onConnected() {
-
-    this.conn.addHandler(this.onMessage, null, "message", null, null, null);
-    this.conn.addHandler(this.onPresence, null, "presence", null, null, null);
-    this.conn.addHandler(
-      this.onRosterPush,
-      "jabber:iq:roster",
-      "iq",
-      "set",
-      null,
-      null
+    this.clearHandlers();
+    this.handlerRefs.push(
+      this.conn.addHandler(this.onMessage, null, "message", null, null, null)
+    );
+    this.handlerRefs.push(
+      this.conn.addHandler(this.onPresence, null, "presence", null, null, null)
+    );
+    this.handlerRefs.push(
+      this.conn.addHandler(
+        this.onRosterPush,
+        "jabber:iq:roster",
+        "iq",
+        "set",
+        null,
+        null
+      )
     );
 
     this.conn.send($pres().c("priority").t("1").up());
@@ -378,14 +400,14 @@ export class XmppClient {
     });
   }
 
-  queryArchive(withJid: string, opts: { max?: number; before?: string } = {}): Promise<{ first: string | null; complete: boolean }> {
+  queryArchive(withJid: string, opts: { max?: number; before?: string; muc?: boolean } = {}): Promise<{ first: string | null; complete: boolean }> {
     return new Promise((resolve) => {
-      const iq = $iq({ type: "set" })
+      const iq = $iq(opts.muc ? { to: bare(withJid), type: "set" } : { type: "set" })
         .c("query", { xmlns: MAM_NS })
         .c("x", { xmlns: "jabber:x:data", type: "submit" })
-        .c("field", { var: "FORM_TYPE", type: "hidden" }).c("value").t(MAM_NS).up().up()
-        .c("field", { var: "with" }).c("value").t(bare(withJid)).up().up()
-        .up()
+        .c("field", { var: "FORM_TYPE", type: "hidden" }).c("value").t(MAM_NS).up().up();
+      if (!opts.muc) iq.c("field", { var: "with" }).c("value").t(bare(withJid)).up().up();
+      iq.up()
         .c("set", { xmlns: "http://jabber.org/protocol/rsm" })
         .c("max").t(String(opts.max ?? 50)).up()
         .c("before").t(opts.before ?? "");
@@ -431,36 +453,80 @@ export class XmppClient {
     }
 
     const mamResult = child(msg, "result", MAM_NS);
-    if (mamResult && (!from || bare(from) === this.bareJid)) {
+    if (mamResult) {
       const fwd = mamResult.getElementsByTagName("forwarded")[0];
       const inner = fwd && fwd.getAttribute("xmlns") === FORWARD_NS ? fwd.getElementsByTagName("message")[0] : undefined;
-      const ibody = inner?.getElementsByTagName("body")[0]?.textContent || "";
-      if (inner && ibody) {
-        const ifrom = inner.getAttribute("from") || "";
-        const ito = inner.getAttribute("to") || "";
+      if (inner) {
+        const fromOwn = !from || bare(from) === this.bareJid;
+        const innerType = inner.getAttribute("type");
+        const ibody = inner.getElementsByTagName("body")[0]?.textContent || "";
         let ts = Date.now();
         const delay = fwd!.getElementsByTagName("delay")[0];
         const stamp = delay?.getAttribute("stamp");
         if (stamp) { const t = Date.parse(stamp); if (!isNaN(t)) ts = t; }
 
-        const id = inner.getAttribute("id") || mamResult.getAttribute("id") || stableId(`${bare(ifrom)}|${ibody}`);
-        const outgoing = !!this.bareJid && bare(ifrom) === this.bareJid;
-        const conv = outgoing ? bare(ito) : bare(ifrom);
-        let oobUrl = "";
-        const ixs = inner.getElementsByTagName("x");
-        for (let i = 0; i < ixs.length; i++) if (ixs[i].getAttribute("xmlns") === OOB_NS) oobUrl = ixs[i].getElementsByTagName("url")[0]?.textContent || "";
-        const trimmed = ibody.trim();
-        const bareUrl = /^https?:\/\/\S+$/.test(trimmed) && (IMAGE_EXT.includes(extOf(trimmed)) || AUDIO_EXT.includes(extOf(trimmed)) || MIME_BY_EXT[extOf(trimmed)]) ? trimmed : "";
-        const url = httpUrl(oobUrl) || bareUrl;
-        const replyEl = inner.getElementsByTagName("reply")[0];
-        const isReply = replyEl && replyEl.getAttribute("xmlns") === REPLY_NS;
-        const replyId = isReply ? replyEl.getAttribute("id") : null;
-        const replyQuote = isReply && replyEl.getAttribute("quote") === "1";
-        this.emit("archive", conv, {
-          id, from: bare(ifrom), to: bare(ito), body: ibody, ts, outgoing,
-          attachment: url ? attachmentFromUrl(url) : undefined,
-          reply: replyId ? { id: replyId, author: "", text: replyQuote ? (replyEl!.textContent || "") : "", quote: replyQuote } : undefined,
-        });
+        if (innerType === "groupchat") {
+
+          const gFrom = inner.getAttribute("from") || "";
+          const room = bare(gFrom);
+          const nick = Strophe.getResourceFromJid(gFrom) || "";
+          if (ibody && nick) {
+            const mid = inner.getAttribute("id") || stableId(`${gFrom}|${ibody}`);
+            let gOob = "";
+            const gxs = inner.getElementsByTagName("x");
+            for (let i = 0; i < gxs.length; i++) if (gxs[i].getAttribute("xmlns") === OOB_NS) gOob = gxs[i].getElementsByTagName("url")[0]?.textContent || "";
+            const gTrim = ibody.trim();
+            const gBareUrl = /^https?:\/\/\S+$/.test(gTrim) && (IMAGE_EXT.includes(extOf(gTrim)) || AUDIO_EXT.includes(extOf(gTrim)) || MIME_BY_EXT[extOf(gTrim)]) ? gTrim : "";
+            const gUrl = httpUrl(gOob) || gBareUrl;
+            const grpReply = inner.getElementsByTagName("reply")[0];
+            const grpReplyId = grpReply && grpReply.getAttribute("xmlns") === REPLY_NS ? grpReply.getAttribute("id") : null;
+            this.emit("groupMessage", room, {
+              id: mid, from: nick, to: room, body: ibody, ts,
+              outgoing: nick === (this.roomNick.get(room) || this.myNick()),
+              delayed: true,
+              attachment: gUrl ? attachmentFromUrl(gUrl) : undefined,
+              reply: grpReplyId ? { id: grpReplyId, author: "", text: "" } : undefined,
+            });
+          }
+        } else if (fromOwn && ibody) {
+          const ifrom = inner.getAttribute("from") || "";
+          const ito = inner.getAttribute("to") || "";
+          const id = inner.getAttribute("id") || mamResult.getAttribute("id") || stableId(`${bare(ifrom)}|${ibody}`);
+          const outgoing = !!this.bareJid && bare(ifrom) === this.bareJid;
+          const conv = outgoing ? bare(ito) : bare(ifrom);
+          let oobUrl = "";
+          const ixs = inner.getElementsByTagName("x");
+          for (let i = 0; i < ixs.length; i++) if (ixs[i].getAttribute("xmlns") === OOB_NS) oobUrl = ixs[i].getElementsByTagName("url")[0]?.textContent || "";
+          const trimmed = ibody.trim();
+          const bareUrl = /^https?:\/\/\S+$/.test(trimmed) && (IMAGE_EXT.includes(extOf(trimmed)) || AUDIO_EXT.includes(extOf(trimmed)) || MIME_BY_EXT[extOf(trimmed)]) ? trimmed : "";
+          const url = httpUrl(oobUrl) || bareUrl;
+          const replyEl = inner.getElementsByTagName("reply")[0];
+          const isReply = replyEl && replyEl.getAttribute("xmlns") === REPLY_NS;
+          const replyId = isReply ? replyEl.getAttribute("id") : null;
+          const replyQuote = isReply && replyEl.getAttribute("quote") === "1";
+          this.emit("archive", conv, {
+            id, from: bare(ifrom), to: bare(ito), body: ibody, ts, outgoing,
+            attachment: url ? attachmentFromUrl(url) : undefined,
+            reply: replyId ? { id: replyId, author: "", text: replyQuote ? (replyEl!.textContent || "") : "", quote: replyQuote } : undefined,
+          });
+        } else if (fromOwn) {
+
+          const rEl = inner.getElementsByTagName("reactions")[0];
+          if (rEl && rEl.getAttribute("xmlns") === REACTIONS_NS) {
+            const targetId = rEl.getAttribute("id");
+            if (targetId) {
+              const emojis: string[] = [];
+              const rk = rEl.getElementsByTagName("reaction");
+              for (let i = 0; i < rk.length; i++) { const t = (rk[i].textContent || "").trim(); if (t && !emojis.includes(t)) emojis.push(t); }
+              const ifrom = inner.getAttribute("from") || "";
+              const ito = inner.getAttribute("to") || "";
+              const outgoing = !!this.bareJid && bare(ifrom) === this.bareJid;
+              const conv = outgoing ? bare(ito) : bare(ifrom);
+              const reactor = outgoing ? "me" : bare(ifrom);
+              this.emit("reaction", conv, targetId, reactor, emojis);
+            }
+          }
+        }
       }
       return true;
     }
@@ -484,9 +550,9 @@ export class XmppClient {
         const stamp = delay && delay.getAttribute("xmlns") === DELAY_NS ? delay.getAttribute("stamp") : null;
         if (stamp) { const t = Date.parse(stamp); if (!isNaN(t)) ts = t; }
         const gBody = bodyEl.textContent;
-        // Dedup id without the volatile ts so a history-replay copy matches the live one.
+
         const mid = msg.getAttribute("id") || stableId(`${from}|${gBody}`);
-        // XEP-0066 OOB / bare-URL attachment, same as the 1:1 path (groups had none before).
+
         let gOob = "";
         const gxs = msg.getElementsByTagName("x");
         for (let i = 0; i < gxs.length; i++) if (gxs[i].getAttribute("xmlns") === OOB_NS) gOob = gxs[i].getElementsByTagName("url")[0]?.textContent || "";

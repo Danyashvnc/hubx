@@ -15,6 +15,15 @@ try {
   }
 } catch {  }
 
+try {
+  if (!localStorage.getItem("hubx.reset.v1")) {
+    for (const k of Object.keys(localStorage)) {
+      if (/^hubx\.(msgs|rooms|saved|drafts|prefs|wall)/.test(k)) localStorage.removeItem(k);
+    }
+    localStorage.setItem("hubx.reset.v1", "1");
+  }
+} catch {  }
+
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {  });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

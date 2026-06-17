@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { CONFIG } from "../config";
 import {
   Search01Icon, MoreVerticalIcon, StarIcon,
-  Add01Icon, SmileIcon, Attachment01Icon, SentIcon, Mic01Icon, Cancel01Icon, Tick01Icon, TickDouble01Icon, Bookmark01Icon, ArrowLeft01Icon,
+  Add01Icon, Attachment01Icon, SentIcon, Mic01Icon, Cancel01Icon, Tick01Icon, TickDouble01Icon, Bookmark01Icon, ArrowLeft01Icon,
   PlayIcon, PauseIcon, MoreHorizontalIcon, PencilEdit01Icon, Delete01Icon, UserGroupIcon, Logout01Icon, ArrowTurnBackwardIcon, QuoteDownIcon, PinIcon, PinOffIcon, SquareLock01Icon, Clock01Icon,
   Copy01Icon, Forward01Icon, CheckmarkSquare02Icon, Alert02Icon,
 } from "@hugeicons/core-free-icons";
@@ -16,7 +16,6 @@ import {
 const PRESENCE_LABEL: Record<Presence, string> = {
   online: "Онлайн", away: "Отошёл", dnd: "Не беспокоить", offline: "Не в сети",
 };
-const EMOJIS = ["😀","😄","😉","🙂","😍","😎","🤔","😴","👍","👌","🙏","👏","🔥","✨","🎉","❤️","💙","💜","✅","❗","⏰","📌","🚀","☕","🤖","😅","😂","🥳","😢","🤝","💯","📎"];
 const QUICK_REACTIONS = ["👍","❤️","😂","🔥","😮","😢"];
 const COMMANDS = [
   { cmd: "/weth", desc: "погода — напр. /weth Москва" },
@@ -60,7 +59,7 @@ function rememberDraft(jid: string, text: string) {
     try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts))); } catch {  }
   }, 300);
 }
-// L5: flush the debounced draft synchronously before the tab is hidden/closed.
+
 function flushDrafts() {
   window.clearTimeout(draftsTimer);
   try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(Object.fromEntries(drafts))); } catch {  }
@@ -71,6 +70,7 @@ async function decodePeaks(url: string, bars: number): Promise<number[] | null> 
   try {
     const res = await fetch(url);
     const buf = await res.arrayBuffer();
+    if (buf.byteLength > 8 * 1024 * 1024) return null;
     const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
     if (!Ctx) return null;
     const ctx = new Ctx();
@@ -96,7 +96,7 @@ function VoicePlayer({ att }: { att: Attachment }) {
   const [peaks, setPeaks] = useState<number[]>(() => pseudoPeaks(att.url, WAVE_BARS));
   const [dead, setDead] = useState(false);
 
-  useEffect(() => { let on = true; const u = safeUrl(att.url); if (u && att.size && att.size <= 8 * 1024 * 1024) decodePeaks(u, WAVE_BARS).then((p) => { if (on && p) setPeaks(p); }); return () => { on = false; }; }, [att.url, att.size]);
+  useEffect(() => { let on = true; const u = safeUrl(att.url); if (u && (!att.size || att.size <= 8 * 1024 * 1024)) decodePeaks(u, WAVE_BARS).then((p) => { if (on && p) setPeaks(p); }); return () => { on = false; }; }, [att.url, att.size]);
 
   const progress = dur ? cur / dur : 0;
   const toggle = () => { const a = ref.current; if (!a) return; if (a.paused) a.play(); else a.pause(); };
@@ -265,8 +265,8 @@ export function ChatThread({
   const draftLive = useRef("");
   draftLive.current = draft;
   const [searchOpen, setSearchOpen] = useState(false);
+  const headSearchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const composeTimer = useRef<number>();
@@ -294,9 +294,9 @@ export function ChatThread({
   const [dragOver, setDragOver] = useState(false);
 
   const [pending, setPending] = useState<{ file: Blob; name: string; previewUrl: string; isImage: boolean } | null>(null);
-  const pendingRef = useRef(pending);                       // L6: revoke its previewUrl on chat switch / unmount
+  const pendingRef = useRef(pending);
   useEffect(() => { pendingRef.current = pending; }, [pending]);
-  const composingJid = useRef<string | null>(null);        // L7: jid we last sent "composing" to, so we can cancel it
+  const composingJid = useRef<string | null>(null);
   const [highlight, setHighlight] = useState<{ id: string; frag: string } | null>(null);
   const selRef = useRef<{ id: string; text: string } | null>(null);
   const hlTimer = useRef<number>();
@@ -334,11 +334,11 @@ export function ChatThread({
   const cmdMatches = isBot && draft.startsWith("/") && !draft.includes(" ")
     ? COMMANDS.filter((c) => c.cmd.startsWith(draft.toLowerCase())) : [];
 
-  useEffect(() => { setSearchOpen(false); setQuery(""); setEmojiOpen(false); window.clearTimeout(composeTimer.current); }, [contact.jid]);
+  useEffect(() => { setSearchOpen(false); setQuery(""); window.clearTimeout(composeTimer.current); }, [contact.jid]);
+  useEffect(() => { if (searchOpen) headSearchRef.current?.focus(); }, [searchOpen]);
 
   useEffect(() => {
     setDraft(drafts.get(contact.jid) || "");
-    return () => rememberDraft(contact.jid, draftLive.current);
   }, [contact.jid]);
   useEffect(() => () => {
     window.clearTimeout(composeTimer.current);
@@ -516,20 +516,21 @@ export function ChatThread({
   }, [menuFor]);
 
   useEffect(() => {
-    if (!ttlMenu && !emojiOpen) return;
-    const close = () => { setTtlMenu(false); setEmojiOpen(false); };
+    if (!ttlMenu) return;
+    const close = () => { setTtlMenu(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     document.addEventListener("click", close); document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("click", close); document.removeEventListener("keydown", onKey); };
-  }, [ttlMenu, emojiOpen]);
+  }, [ttlMenu]);
   useEffect(() => {
-    // L6: revoke the previous chat's pending preview; L7: cancel a stuck "typing" for the previous chat.
+
     if (pendingRef.current?.previewUrl) URL.revokeObjectURL(pendingRef.current.previewUrl);
     if (composingJid.current && composingJid.current !== contact.jid) { try { client.sendComposing(composingJid.current, false); } catch {  } composingJid.current = null; }
-    setMenuFor(null); setMenuPos(null); setEditing(null); setReplying(null); setDragOver(false); setPending(null); setHighlight(null); setTtlMenu(false); setEmojiOpen(false); setSelectMode(false); setSelected(new Set()); setDelModalOpen(false); setHistDone(false); setLoadingOlder(false); prependingRef.current = false;
+    setMenuFor(null); setMenuPos(null); setEditing(null); setReplying(null); setDragOver(false); setPending(null); setHighlight(null); setTtlMenu(false); setSelectMode(false); setSelected(new Set()); setDelModalOpen(false); setHistDone(false); setLoadingOlder(false); prependingRef.current = false;
   }, [contact.jid]);
   function onDraft(v: string) {
     setDraft(v);
+    rememberDraft(contact.jid, v);
     if (local || room || secret) return;
     client.sendComposing(contact.jid, true);
     composingJid.current = contact.jid;
@@ -718,7 +719,10 @@ export function ChatThread({
           <div className="thread-head-info empty">{typing ? <span className="typing-text">печатает…</span> : null}</div>
         )}
         <div className="thread-actions">
-          <button className={searchOpen ? "ic-btn active" : "ic-btn"} title="Поиск по чату" onClick={() => setSearchOpen((s) => !s)}><Icon icon={Search01Icon} /></button>
+          <input ref={headSearchRef} className={searchOpen ? "head-search open" : "head-search"} value={query}
+            onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по переписке…"
+            onKeyDown={(e) => { if (e.key === "Escape") { setQuery(""); setSearchOpen(false); } }} />
+          <button className={searchOpen ? "ic-btn active" : "ic-btn"} title="Поиск по чату" onClick={() => setSearchOpen((s) => { const n = !s; if (!n) setQuery(""); return n; })}><Icon icon={searchOpen ? Cancel01Icon : Search01Icon} /></button>
           {room && <button className={infoOpen ? "ic-btn active" : "ic-btn"} title="Участники" onClick={onToggleInfo}><Icon icon={UserGroupIcon} /></button>}
           {room && <button className="ic-btn" title="Выйти из группы" onClick={onLeaveRoom}><Icon icon={Logout01Icon} /></button>}
           {secret && (
@@ -744,16 +748,6 @@ export function ChatThread({
       </header>
       )}
 
-      <AnimatePresence>
-        {searchOpen && (
-          <motion.div className="thread-search" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
-            <Icon icon={Search01Icon} size={16} />
-            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Поиск по переписке…" />
-            <span className="thread-search-count">{query ? `${shown.length} найдено` : ""}</span>
-            <button className="ic-btn sm" onClick={() => { setQuery(""); setSearchOpen(false); }}><Icon icon={Cancel01Icon} size={16} /></button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <div className={secret ? "thread-body secret-body" : "thread-body"}
         onContextMenu={secret ? (e) => e.preventDefault() : undefined}
@@ -1008,21 +1002,10 @@ export function ChatThread({
             </div>
           ) : (
             <>
-              <div className="comp-emoji-wrap">
-                <AnimatePresence>
-                  {emojiOpen && (
-                    <motion.div className="emoji-pop" initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.96 }}>
-                      {EMOJIS.map((e) => (
-                        <button key={e} onClick={() => { setDraft((d) => d + e); }}>{e}</button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <button className="comp-ic plus" title={uploading ? "Загрузка…" : "Прикрепить файл"} disabled={uploading}
-                  onClick={() => (local || room ? onSoon("Вложения — в личных чатах.") : fileRef.current?.click())}>
-                  <Icon icon={Add01Icon} size={20} />
-                </button>
-              </div>
+              <button className="comp-ic plus" title={uploading ? "Загрузка…" : "Прикрепить файл"} disabled={uploading}
+                onClick={() => (local || room ? onSoon("Вложения — в личных чатах.") : fileRef.current?.click())}>
+                <Icon icon={Add01Icon} size={20} />
+              </button>
               <textarea ref={taRef} value={draft} onChange={(e) => onDraft(e.target.value)} onPaste={onPaste}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") { if (forwardPreview?.length) { onCancelForward?.(); return; } if (pending) { if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl); setPending(null); return; } if (editing) { cancelEdit(); return; } if (replying) { setReplying(null); return; } }
@@ -1032,7 +1015,6 @@ export function ChatThread({
                   }
                 }}
                 rows={1} placeholder={uploading ? "Загрузка файла…" : forwardPreview?.length ? "Добавить сообщение (необязательно)…" : pending ? (pending.isImage ? "Подпись к фото…" : "Подпись к файлу…") : "Напишите сообщение…"} />
-              <button className={emojiOpen ? "comp-ic active" : "comp-ic"} title="Эмодзи" onClick={() => setEmojiOpen((o) => !o)}><Icon icon={SmileIcon} size={18} /></button>
               <button className="comp-ic" title={uploading ? "Загрузка…" : "Прикрепить файл"} disabled={uploading}
                 onClick={() => (local || room ? onSoon("Вложения — в личных чатах.") : fileRef.current?.click())}>
                 <Icon icon={Attachment01Icon} size={18} />

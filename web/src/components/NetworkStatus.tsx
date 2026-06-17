@@ -20,7 +20,8 @@ async function ping(origin: string, timeout = 2200): Promise<boolean> {
   }
 }
 
-export function NetworkStatus() {
+export function NetworkStatus({ currentDomain }: { currentDomain?: string }) {
+  const currentId = currentDomain === "hubx2.local" ? "b" : currentDomain ? "a" : null;
   const [up, setUp] = useState<Record<string, boolean | undefined>>({});
 
   useEffect(() => {
@@ -47,8 +48,8 @@ export function NetworkStatus() {
       <div className="netstat-nodes">
         {NODES.map((n, i) => (
           <Fragment key={n.id}>
-            <span className={`net-node ${up[n.id] === undefined ? "wait" : up[n.id] ? "on" : "off"}`}>
-              <span className="net-dot" />{n.label}
+            <span className={`net-node ${up[n.id] === undefined ? "wait" : up[n.id] ? "on" : "off"}${n.id === currentId ? " me" : ""}`}>
+              <span className="net-dot" />{n.label}{n.id === currentId && <span className="net-you">вы</span>}
             </span>
             {i < NODES.length - 1 && <span className={`net-link ${bothUp ? "on" : "off"}`} />}
           </Fragment>

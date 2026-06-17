@@ -202,6 +202,11 @@ export function Auth({
                   onChange={(e) => setInvite(e.target.value)}
                   placeholder="код от администратора"
                 />
+                {CONFIG.IS_LOCAL && (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Демо-код: <button type="button" className="chip" onClick={() => setInvite("HUBX-DEMO")}>HUBX-DEMO</button>
+                  </span>
+                )}
               </label>
             )}
 
@@ -253,6 +258,24 @@ export function Auth({
                 {u} / {p}
               </motion.button>
             ))}
+            {server.id === "local" && CONFIG.IS_LOCAL && (
+              <motion.button
+                key="admin"
+                className="chip chip-admin"
+                type="button"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => {
+                  const [u, p] = CONFIG.ADMIN_DEMO;
+                  setUsername(u);
+                  setPassword(p);
+                  setMode("login");
+                }}
+                title="Демо-вход администратора · открывает админ-панель · доступно только локально"
+              >
+                {CONFIG.ADMIN_DEMO[0]} / {CONFIG.ADMIN_DEMO[1]}
+              </motion.button>
+            )}
           </div>
         </motion.div>
         <p className="auth-legal"><span className="shimmer">{CONFIG.BRAND}</span> • XMPP / ejabberd • открытый протокол</p>

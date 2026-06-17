@@ -46,7 +46,6 @@ export async function requestPush() {
   }
 }
 
-// M4: per-chat muted JIDs (mirrored from Workspace) gate sound + desktop push.
 let mutedJids = new Set<string>();
 export function setMutedJids(jids: string[]) { mutedJids = new Set(jids); }
 export function isMutedJid(jid?: string) { return !!jid && mutedJids.has(jid); }
@@ -56,7 +55,7 @@ export type PushOpts = {
   body?: string;
   icon?: string;
   onClick?: () => void;
-  jid?: string;        // conversation jid, for per-chat mute gating
+  jid?: string;
   noPreview?: boolean;
 };
 

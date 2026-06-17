@@ -31,7 +31,7 @@ function say(to, text) {
 }
 
 const HELP = [
-  "🤖 Я бот HubX. Команды:",
+  "Я бот HubX. Команды:",
   "• /remind 15:30 текст — напомню в указанное время (или /remind 10 текст — через N минут)",
   "• /weth [город] — текущая погода",
   "• /conv 100 usd rub — валюты и единицы (km, kg, c…)",
@@ -99,16 +99,8 @@ function onPresence(pres) {
   if (type === "subscribe") {
     conn.send($pres({ to: j, type: "subscribed" }));
     conn.send($pres({ to: j, type: "subscribe" }));
-    setTimeout(() => say(j, `Привет, ${nick(j)}! 👋 Я бот HubX. Напиши /help — покажу команды (погода, конвертер, напоминания).`), 600);
+    setTimeout(() => say(j, `Привет, ${nick(j)}! Я бот HubX. Напиши /help — покажу команды (погода, конвертер, напоминания).`), 600);
     return true;
-  }
-  if (!type) {
-    const now = Date.now();
-    if (now - (lastLoginNotice.get(j) || 0) > LOGIN_DEBOUNCE_MS) {
-      lastLoginNotice.set(j, now);
-      const t = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-      say(j, `🔔 Вход выполнен. Добро пожаловать, ${nick(j)}! Вы в сети с ${t}.`);
-    }
   }
   return true;
 }

@@ -43,8 +43,9 @@ export const ChatList = forwardRef<HTMLInputElement, {
   onDeclineRequest?: (jid: string) => void;
   dirResults?: { username: string; jid: string; online: boolean }[];
   onOpenDirUser?: (username: string) => void;
+  selfHost?: string;
 }>(function ChatList(
-  { conversations, saved, messageMatches = [], activeJid, tab, search, onlineOnly, onTab, onSearch, onToggleOnline, onSelect, onNewChat, onNewSecret, requests = [], onAcceptRequest, onDeclineRequest, dirResults = [], onOpenDirUser }, ref
+  { conversations, saved, messageMatches = [], activeJid, tab, search, onlineOnly, onTab, onSearch, onToggleOnline, onSelect, onNewChat, onNewSecret, requests = [], onAcceptRequest, onDeclineRequest, dirResults = [], onOpenDirUser, selfHost }, ref
 ) {
   const q = search.trim();
   const tabs: { k: Tab; label: string }[] = [
@@ -84,7 +85,7 @@ export const ChatList = forwardRef<HTMLInputElement, {
 
   return (
     <div className="chatlist">
-      <NetworkStatus />
+      <NetworkStatus currentDomain={selfHost} />
       <div className="cl-search">
         <span className="cl-search-ic"><Icon icon={Search01Icon} size={17} /></span>
         <input ref={ref} value={search} onChange={(e) => onSearch(e.target.value)}

@@ -5,7 +5,7 @@ import type { ChatMessage, ConnState, Contact, Occupant, Presence } from "./type
 import { msgPreview } from "./types";
 import { Auth } from "./components/Auth";
 import { Workspace } from "./components/Workspace";
-import { api, clearAdminToken, clearUserToken } from "./api";
+import { api, clearAdminToken, clearUserToken, setReauth } from "./api";
 import { unlockAudio, playLogin, playMessage } from "./sounds";
 import { getNotif, pushMessage, pushOnline, requestPush, enableWebPush, isMutedJid } from "./notify";
 import { getPhoto, setPhoto } from "./avatarStore";
@@ -55,11 +55,12 @@ export function App() {
   const secretPriv = useRef<Map<string, CryptoKey>>(new Map());
   const secretMyPub = useRef<Map<string, JsonWebKey>>(new Map());
   const secretSeen = useRef<Set<string>>(new Set());
-  // H1: a secretInit whose identity key changed is held here (not acted on)
-  // until the user explicitly confirms via the verify action.
+
+  const secretPendingBurn = useRef<Map<string, { convJid: string; ttl: number }>>(new Map());
+  const secretReadStarted = useRef<Set<string>>(new Set());
+
   const pendingSecretInit = useRef<Map<string, { k: JsonWebKey; idk: JsonWebKey; sig: string }>>(new Map());
 
-  // L4: cap an unbounded Set, evicting oldest insertions first.
   const capSet = (s: Set<string>, max: number) => {
     while (s.size > max) { const first = s.values().next().value; if (first === undefined) break; s.delete(first); }
   };
@@ -113,7 +114,7 @@ export function App() {
     for (const j of jids) {
       if (!j || j.includes("@conference.") || photoTried.current.has(j) || getPhoto(j)) continue;
       photoTried.current.add(j);
-      capSet(photoTried.current, 500); // L4: keep photoTried bounded.
+      capSet(photoTried.current, 500);
       photoQueue.current.push(j);
     }
     if (photoPumping.current) return;
@@ -186,9 +187,7 @@ export function App() {
 
   function doConnect(username: string, password: string, server: { ws: string; domain: string } | undefined, isReconnect: boolean) {
     const srv = server || { ws: CONFIG.WS_URL, domain: CONFIG.DOMAIN };
-    // L9: never let ECDH/session key material outlive the account it belongs
-    // to. On every fresh (non-reconnect) connect, wipe derived keys, pending
-    // ephemerals, seen-ids and revoke any decrypted blob URLs.
+
     if (!isReconnect) {
       secretKeys.current.clear();
       secretPriv.current.clear();
@@ -212,8 +211,8 @@ export function App() {
         setSelfJid(client.bareJid);
         api.sessionBeacon(client.bareJid);
         enableWebPush(client.bareJid);
-        // Per-user session token (proves JID ownership for room invite-link / join).
-        { const [u, h] = client.bareJid.split("@"); api.authToken(u, credsRef.current?.password || "", h); }
+
+        { const [u, h] = client.bareJid.split("@"); const doAuth = () => api.authToken(u, credsRef.current?.password || "", h); setReauth(doAuth); doAuth(); }
         playLogin();
 
         client.getVCard().then((v) => {
@@ -224,10 +223,7 @@ export function App() {
         (async () => {
           const jid = client.bareJid;
           try {
-            // M5: identity private key is persisted as an extractable JWK.
-            // TODO(M5): migrate to a non-extractable CryptoKey in IndexedDB
-            // (keep only the public JWK here). Mitigated for now by wiping
-            // `hubx.id.<jid>` on logout (see logout()).
+
             const st = JSON.parse(localStorage.getItem(`hubx.id.${jid}`) || "null");
             if (st?.priv && st?.pub) myIdentity.current = { priv: await e2e.importIdentityPriv(st.priv), pub: st.pub };
             else {
@@ -351,7 +347,7 @@ export function App() {
     });
     client.on("retract", (peer, id) => {
 
-      setMessages((prev) => ({ ...prev, [peer]: (prev[peer] || []).filter((m) => m.id !== id) }));
+      setMessages((prev) => ({ ...prev, [peer]: (prev[peer] || []).filter((m) => !(m.id === id && !m.outgoing)) }));
     });
     client.on("reaction", (peer, targetId, fromBare, emojis) => {
 
@@ -426,13 +422,9 @@ export function App() {
           if (me < peer) return;
           secretPriv.current.delete(peer); secretMyPub.current.delete(peer);
         }
-        // H2: the signature is over `init|peer|me|x.y`; reject if the embedded
-        // sender/recipient JIDs do not match the actual sender and self.
+
         if (!(await e2e.verifyPub(idk, k, sig, "init", peer, me))) { console.warn("secretInit: bad identity signature from", peer); return; }
 
-        // H1: if we already pinned a DIFFERENT identity key for this peer, do
-        // NOT derive a key or send an ack. Hold the init, flag the change for
-        // the UI (red warning + "verify"), and wait for explicit confirmation.
         const pinned = secretIdsRef.current[peer];
         if (pinned && JSON.stringify(pinned.idk) !== JSON.stringify(idk)) {
           pendingSecretInit.current.set(peer, { k, idk, sig });
@@ -456,6 +448,7 @@ export function App() {
         upsertContact(secretJid(peer), { isSecret: true, secretPeer: peer, name: peer.split("@")[0], presence: "online" });
         if (getNotif().sound) playMessage();
         pushMessage({ title: "🔒 Секретный чат", body: `${nameOf(peer)} начал(а) секретный чат`, icon: getPhoto(peer), onClick: () => openChatNotif(secretJid(peer)) });
+        window.dispatchEvent(new CustomEvent("hubx:toast", { detail: `🔒 ${nameOf(peer)} начал секретный чат` }));
       } catch (e) { console.warn("secretInit failed", e); }
     });
     client.on("secretAck", async (peer, { k, idk, sig }) => {
@@ -464,11 +457,9 @@ export function App() {
         const id = myIdentity.current;
         if (!myPriv || !id) return;
         const me = selfJidRef.current;
-        // H2: the ack signature is over `ack|peer|me|x.y`.
+
         if (!(await e2e.verifyPub(idk, k, sig, "ack", peer, me))) { console.warn("secretAck: bad identity signature from", peer); return; }
 
-        // H1: a changed identity key on the ack must block the session. Keep
-        // the pending ephemeral so the user can resume after verifying.
         const pinned = secretIdsRef.current[peer];
         if (pinned && JSON.stringify(pinned.idk) !== JSON.stringify(idk)) {
           pendingSecretInit.current.set(peer, { k, idk, sig });
@@ -485,6 +476,8 @@ export function App() {
         pinIdentity(peer, idk);
         const fp = await e2e.fingerprint(id.pub, idk);
         setSecretState((s) => ({ ...s, [peer]: { established: true, ttl: s[peer]?.ttl || 0, fingerprint: fp } }));
+        if (getNotif().sound) playMessage();
+        window.dispatchEvent(new CustomEvent("hubx:toast", { detail: `🔒 Секретный чат с ${nameOf(peer)} готов` }));
       } catch (e) { console.warn("secretAck failed", e); }
     });
     client.on("secretMsg", async (peer, { id, iv, ct, ttl }) => {
@@ -498,13 +491,10 @@ export function App() {
         const seenKey = `${peer}:${realId}`;
         if (secretSeen.current.has(seenKey)) return;
         secretSeen.current.add(seenKey);
-        capSet(secretSeen.current, 500); // L4: keep secretSeen bounded.
+        capSet(secretSeen.current, 500);
 
         if (attachment && attachment.fileIv && attachment.url) {
-          // M2: never trust the self-reported `size`. Enforce a hard cap from
-          // the Content-Length header and again on the actual byteLength,
-          // BEFORE decrypting, so a malicious peer can't force an unbounded
-          // download/allocation.
+
           const CAP = 25 * 1024 * 1024;
           if ((attachment.size || 0) > CAP) { attachment = undefined; }
           else try {
@@ -529,7 +519,8 @@ export function App() {
         if (getNotif().sound) playMessage();
 
         pushMessage({ title: `🔒 ${nameOf(peer)}`, noPreview: true, icon: getPhoto(peer), onClick: () => openChatNotif(cj) });
-        if (realTtl > 0) scheduleBurn(cj, realId, realTtl);
+
+        if (realTtl > 0) secretPendingBurn.current.set(realId, { convJid: cj, ttl: realTtl });
       } catch (e) { console.warn("secret decrypt failed (tampered or wrong key)", e); }
     });
     client.on("secretTtl", (peer, ttl) => {
@@ -586,17 +577,12 @@ export function App() {
     window.clearTimeout(reconnectTimer.current);
     clearAdminToken();
     clearUserToken();
+    setReauth(null);
     setHydrated(false);
     const jid = clientRef.current?.bareJid || selfJidRef.current;
     clientRef.current?.disconnect();
     clientRef.current = null;
 
-    // M5: the long-term identity private key is persisted as an EXTRACTABLE
-    // JWK in localStorage. At minimum, wipe it (and all secret material) on
-    // logout so it does not outlive the session.
-    // TODO(M5): store the identity private key as a NON-EXTRACTABLE CryptoKey
-    // in IndexedDB and keep only the public JWK in localStorage for the
-    // fingerprint. Until then this logout-wipe is the mitigation.
     if (jid) {
       try { localStorage.removeItem(`hubx.id.${jid}`); } catch {  }
       try { localStorage.removeItem(`hubx.secretid.${jid}`); } catch {  }
@@ -635,8 +621,7 @@ export function App() {
     clientRef.current?.editMessage(to, id, body);
     setMessages((prev) => ({ ...prev, [to]: (prev[to] || []).map((m) => (m.id === id ? { ...m, body, edited: true, attachment: undefined } : m)) }));
   }
-  // M3: when a secret message is removed, release its decrypted blob URL and
-  // drop its replay-protection entry so nothing lingers in memory.
+
   function cleanupSecretMsg(convJid: string, id: string) {
     if (!convJid.startsWith("secret:")) return;
     revokeBlob(id);
@@ -672,7 +657,7 @@ export function App() {
   }
 
   function clearConversation(jid: string) {
-    // M3: for secret chats, release every removed message's blob + seen-id.
+
     if (jid.startsWith("secret:")) {
       const peer = jid.slice("secret:".length);
       for (const m of messages[jid] || []) { revokeBlob(m.id); secretSeen.current.delete(`${peer}:${m.id}`); }
@@ -681,19 +666,25 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!selfJid) return;
-    const m = location.hash.match(/#join=([A-Za-z0-9_.-]+)/);
-    if (!m) return;
-    history.replaceState(null, "", location.pathname + location.search);
-    api.roomJoin(m[1], selfJid).then((room) => {
-      if (room) {
-        joinRoom(room.split("@")[0]);
-        window.dispatchEvent(new CustomEvent("hubx:toast", { detail: "Вы вступили в группу" }));
-        window.dispatchEvent(new CustomEvent("hubx:open-chat", { detail: room }));
-      } else {
-        window.dispatchEvent(new CustomEvent("hubx:toast", { detail: "Ссылка-приглашение недействительна или истекла" }));
-      }
-    });
+    const tryJoin = () => {
+      const jid = selfJidRef.current;
+      if (!jid) return;
+      const m = location.hash.match(/#join=([A-Za-z0-9_.-]+)/);
+      if (!m) return;
+      history.replaceState(null, "", location.pathname + location.search);
+      api.roomJoin(m[1], jid).then((room) => {
+        if (room) {
+          joinRoom(room.split("@")[0]);
+          window.dispatchEvent(new CustomEvent("hubx:toast", { detail: "Вы вступили в группу" }));
+          window.dispatchEvent(new CustomEvent("hubx:open-chat", { detail: room }));
+        } else {
+          window.dispatchEvent(new CustomEvent("hubx:toast", { detail: "Ссылка-приглашение недействительна или истекла" }));
+        }
+      });
+    };
+    window.addEventListener("hashchange", tryJoin);
+    tryJoin();
+    return () => window.removeEventListener("hashchange", tryJoin);
   }, [selfJid]);
 
   function persistRooms() {
@@ -723,6 +714,17 @@ export function App() {
     }, ttl * 1000);
   }
 
+  function markSecretRead(convJid: string) {
+    for (const [id, info] of secretPendingBurn.current) {
+      if (info.convJid !== convJid) continue;
+      secretPendingBurn.current.delete(id);
+      if (secretReadStarted.current.has(id)) continue;
+      secretReadStarted.current.add(id);
+      capSet(secretReadStarted.current, 500);
+      scheduleBurn(info.convJid, id, info.ttl);
+    }
+  }
+
   function pinIdentity(peer: string, idk: JsonWebKey) {
     const prev = secretIdsRef.current[peer];
     if (prev && JSON.stringify(prev.idk) === JSON.stringify(idk)) return;
@@ -731,10 +733,7 @@ export function App() {
   }
   async function verifySecret(convJid: string) {
     const peer = convJid.slice("secret:".length);
-    // H1: a held handshake (key change that we refused to act on) is only
-    // completed here, after the user explicitly confirms the new key. We
-    // re-pin the new identity key, derive the shared key, and (for an init)
-    // send the ack — exactly the steps the handlers deliberately skipped.
+
     const pending = pendingSecretInit.current.get(peer);
     if (pending) {
       pendingSecretInit.current.delete(peer);
@@ -743,13 +742,13 @@ export function App() {
         try {
           const myPriv = secretPriv.current.get(peer);
           if (myPriv) {
-            // We initiated: this was a held ack. Derive with our ephemeral.
+
             const key = await e2e.deriveKey(myPriv, await e2e.importPubJwk(pending.k));
             secretKeys.current.set(peer, key);
             secretPriv.current.delete(peer);
             secretMyPub.current.delete(peer);
           } else {
-            // Peer initiated: this was a held init. Derive + send ack now.
+
             const kp = await e2e.generateKeyPair();
             const myPub = await e2e.exportJwk(kp.publicKey);
             const key = await e2e.deriveKey(kp.privateKey, await e2e.importPubJwk(pending.k));
@@ -760,7 +759,7 @@ export function App() {
           setSecretState((s) => ({ ...s, [peer]: { established: true, ttl: s[peer]?.ttl || 0, fingerprint: fp } }));
         } catch (e) { console.warn("verifySecret: resume handshake failed", e); }
       }
-      // Re-pin the new (now user-confirmed) identity key as verified.
+
       setSecretIds((m) => { const n = { ...m, [peer]: { idk: pending.idk, verified: true, changed: false } }; try { localStorage.setItem(`hubx.secretid.${selfJidRef.current}`, JSON.stringify(n)); } catch {  } return n; });
       return;
     }
@@ -775,7 +774,7 @@ export function App() {
       const myPub = await e2e.exportJwk(kp.publicKey);
       secretPriv.current.set(peer, kp.privateKey);
       secretMyPub.current.set(peer, myPub);
-      // H2: bind the init signature to direction + JIDs (init|me|peer|x.y).
+
       client.sendSecretInit(peer, myPub, id.pub, await e2e.signPub(id.priv, myPub, "init", selfJid, peer));
       setSecretState((s) => ({ ...s, [peer]: { established: false, ttl: s[peer]?.ttl || 0 } }));
       upsertContact(secretJid(peer), { isSecret: true, secretPeer: peer, name: peer.split("@")[0], presence: "online" });
@@ -870,6 +869,15 @@ export function App() {
 
   function resolveVCard(jid: string) {
     if (!jid || jid.includes(":") || jid.startsWith("#")) return;
+    const isRoom = jid.includes("@conference.");
+    if (isRoom) {
+
+      if (!archivedRef.current.has(jid)) {
+        archivedRef.current.add(jid);
+        clientRef.current?.queryArchive(jid, { max: 50, muc: true }).then((cur) => { mamCursor.current[jid] = cur; });
+      }
+      return;
+    }
     clientRef.current?.getVCard(jid).then((v) => {
       if (v.fn) upsertContact(jid, { name: v.fn });
       if (v.photo && v.photo !== getPhoto(jid)) setPhoto(jid, v.photo);
@@ -886,10 +894,8 @@ export function App() {
     if (!cur || cur.complete || !cur.first || mamLoading.current.has(jid)) return false;
     mamLoading.current.add(jid);
     try {
-      const next = await clientRef.current!.queryArchive(jid, { max: 50, before: cur.first });
-      // L3: if the server returns no new cursor (null) or the same `first` as
-      // before, there is no more history — mark complete to stop paging and
-      // avoid a stall/infinite loop.
+      const next = await clientRef.current!.queryArchive(jid, { max: 50, before: cur.first, muc: jid.includes("@conference.") });
+
       const terminal = next.complete || next.first == null || next.first === cur.first;
       mamCursor.current[jid] = { first: next.first ?? cur.first, complete: terminal };
       return !terminal;
@@ -962,6 +968,7 @@ export function App() {
       onSendSecret={sendSecret}
       onSendSecretFile={sendSecretFile}
       onSetSecretTtl={setSecretTtl}
+      onSecretRead={markSecretRead}
       onLeaveSecret={leaveSecret}
       requests={requests}
       subStatus={subStatus}
