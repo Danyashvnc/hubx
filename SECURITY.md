@@ -75,8 +75,3 @@ HTTP-API ejabberd отвечает только с loopback или под аут
 - `Strict-Transport-Security` со сроком год для всего домена.
 - `Content-Security-Policy`, настроенный под реальные источники приложения: скрипты только свои (`script-src 'self'`), стили свои плюс Google Fonts, шрифты с `fonts.gstatic.com`, картинки из `data:`/`blob:` (аватары и вложения), соединения к своему WebSocket (`connect-src 'self' wss://<домен>`), service worker свой. `object-src` и `frame-ancestors` запрещены.
 
-## Что усилить перед боевым запуском
-
-- TLS на всех каналах. В облачном развёртывании это делает Caddy (Let's Encrypt), локально клиент ходит по `ws://`.
-- Закрыть открытую регистрацию (приглашения, SSO или LDAP), сузить ACL `world` в ejabberd.
-- Хранить `ADMIN_API_SECRET` в менеджере секретов, настроить ротацию ключей и аудит админ-действий.
