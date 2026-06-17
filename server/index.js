@@ -9,8 +9,9 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import validator from "validator";
-import disposableList from "disposable-email-domains";
 import dns from "node:dns";
+import { createRequire } from "node:module";
+const disposableList = createRequire(import.meta.url)("disposable-email-domains");
 
 const PORT       = process.env.PORT         || 4000;
 const XMPP_HOST  = process.env.XMPP_HOST    || "localhost";
