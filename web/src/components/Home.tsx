@@ -7,8 +7,8 @@ import { useNotif, setNotif } from "../notify";
 import type { Section } from "./NavRail";
 import { PencilEdit02Icon, UserMultiple02Icon, UserGroupIcon, Shield01Icon, WavingHand01Icon, GlobeIcon } from "@hugeicons/core-free-icons";
 
-const container = { hidden: {}, visible: { transition: { staggerChildren: 0.06 } } };
-const item = { hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } };
+const container = { hidden: {}, visible: { transition: { staggerChildren: 0.03 } } };
+const item = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { duration: 0.18 } } };
 
 type Activity = { id: string; icon: string; text: string; time: string };
 

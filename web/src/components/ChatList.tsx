@@ -61,8 +61,7 @@ export const ChatList = forwardRef<HTMLInputElement, {
 
   function Row({ contact, last, unread, fav }: Conversation) {
     return (
-      <motion.button key={contact.jid} layout
-        initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -14 }}
+      <button key={contact.jid}
         className={contact.jid === activeJid ? "cl-row active" : "cl-row"} onClick={() => onSelect(contact.jid)}>
         {contact.isSecret ? <span className="room-ava sm secret-ava"><Icon icon={SquareLock01Icon} size={22} /></span>
           : contact.isRoom ? <span className="room-ava sm"><Icon icon={UserGroupIcon} size={22} /></span>
@@ -79,7 +78,7 @@ export const ChatList = forwardRef<HTMLInputElement, {
             {unread > 0 && <span className="cl-badge">{unread}</span>}
           </div>
         </div>
-      </motion.button>
+      </button>
     );
   }
 

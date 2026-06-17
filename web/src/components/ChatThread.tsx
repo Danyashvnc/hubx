@@ -336,6 +336,12 @@ export function ChatThread({
 
   useEffect(() => { setSearchOpen(false); setQuery(""); window.clearTimeout(composeTimer.current); }, [contact.jid]);
   useEffect(() => { if (searchOpen) headSearchRef.current?.focus(); }, [searchOpen]);
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+  }, [draft]);
 
   useEffect(() => {
     setDraft(drafts.get(contact.jid) || "");

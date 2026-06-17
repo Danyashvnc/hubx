@@ -61,6 +61,22 @@ export function Auth({
         setNotice("Регистрация — на основном сервере. На серверах A/B используйте готовые аккаунты (anna / boris).");
         return;
       }
+      if (u.includes("@") || /[а-я]/i.test(u)) {
+        setNotice("Логин — без почты и @. Только латиница, цифры, точка, дефис, подчёркивание.");
+        return;
+      }
+      if (!/^[a-z0-9._-]{2,32}$/.test(u)) {
+        setNotice("Логин: 2–32 символа, латиница/цифры и . _ -");
+        return;
+      }
+      if (password.length < 8) {
+        setNotice("Пароль — минимум 8 символов.");
+        return;
+      }
+      if (!invite.trim()) {
+        setNotice("Нужен код‑приглашение от администратора (для демо: HUBX-DEMO).");
+        return;
+      }
       setBusy(true);
       try {
         await api.register(u, password, invite.trim() || undefined);
@@ -148,9 +164,7 @@ export function Auth({
                 className={mode === m ? "tab active" : "tab"}
                 onClick={() => { setMode(m); setNotice(undefined); }}
               >
-                {mode === m && (
-                  <motion.span className="tab-pill" layoutId="tabPill" transition={{ type: "spring", stiffness: 380, damping: 32 }} />
-                )}
+                {mode === m && <span className="tab-pill" />}
                 <span style={{ position: "relative", zIndex: 1 }}>
                   {m === "login" ? "Вход" : "Регистрация"}
                 </span>

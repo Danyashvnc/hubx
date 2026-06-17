@@ -253,7 +253,7 @@ export function Workspace(props: {
     if (!contacts.some((c) => c.jid === jid)) onStartChat(jid.split("@")[0]);
     openChat(jid); setSection("home");
   }
-  function newChat() { setActiveJid(""); setSection("home"); setTimeout(() => searchRef.current?.focus(), 60); }
+  function newChat() { setActiveJid(""); setSection("contacts"); setTimeout(() => searchRef.current?.focus(), 60); }
 
   async function ensureExists(name: string): Promise<boolean> {
     const u = (name.includes("@") ? name.split("@")[0] : name).toLowerCase();
@@ -469,8 +469,18 @@ export function Workspace(props: {
                 const token = await api.roomInviteLink(active.jid, selfJid, ttlMs);
                 if (!token) { showToast("Не удалось создать ссылку. Проверьте, что вы админ группы, и попробуйте ещё раз."); return; }
                 const link = `${location.origin}${location.pathname}#join=${token}`;
-                try { await navigator.clipboard.writeText(link); showToast("Ссылка-приглашение скопирована в буфер"); }
-                catch { showToast(link); }
+                let copied = false;
+                try { await navigator.clipboard.writeText(link); copied = true; }
+                catch {
+                  try {
+                    const ta = document.createElement("textarea");
+                    ta.value = link; ta.style.position = "fixed"; ta.style.opacity = "0";
+                    document.body.appendChild(ta); ta.focus(); ta.select();
+                    copied = document.execCommand("copy");
+                    document.body.removeChild(ta);
+                  } catch {}
+                }
+                showToast(copied ? "Ссылка-приглашение скопирована в буфер" : `Скопируйте ссылку вручную: ${link}`);
               }} />
           : <InfoPanel key={active.jid} contact={active} selfJid={selfJid} muted={!!muted[active.jid]}
               onClose={() => setInfoOpen(false)} onToggleMute={() => { setMuted((m) => ({ ...m, [active.jid]: !m[active.jid] })); showToast(muted[active.jid] ? "Уведомления включены" : "Уведомления чата выключены"); }}
@@ -623,7 +633,7 @@ function RoomMembers({ room, occupants, selfNick, onClose, onToast, onSetAffilia
             <Avatar jid={o.jid || o.nick} size={38} />
             <div className="member-meta">
               <div className="member-nick">{o.nick}{o.nick === selfNick && " (вы)"}</div>
-              <span className={isAdmin(o) ? "member-badge admin" : "member-badge"}>{isAdmin(o) ? <><Icon icon={Crown03Icon} size={12} /> Админ</> : "Участник"}</span>
+              <span className={isAdmin(o) ? "member-badge is-admin" : "member-badge"}>{isAdmin(o) ? <><Icon icon={Crown03Icon} size={12} /> Админ</> : "Участник"}</span>
             </div>
             {amAdmin && o.nick !== selfNick && o.jid && (
               <div className="member-actions">
