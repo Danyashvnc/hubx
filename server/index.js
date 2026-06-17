@@ -341,13 +341,13 @@ function verifyToken(token) {
 }
 
 function requireLocal(req, res, next) {
-  if (!isPrivateIp(clientIp(req)))
+  if (ALLOW_INSECURE && !isPrivateIp(clientIp(req)))
     return res.status(403).json({ ok: false, error: "Админ-доступ разрешён только из локальной сети" });
   next();
 }
 
 function requireAdmin(req, res, next) {
-  if (!isPrivateIp(clientIp(req)))
+  if (ALLOW_INSECURE && !isPrivateIp(clientIp(req)))
     return res.status(403).json({ ok: false, error: "Админ-доступ разрешён только из локальной сети" });
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;

@@ -35,7 +35,7 @@ if [ ! -f certs/fed.pem ]; then
   cat certs/_k.pem certs/_c.pem > certs/fed.pem && rm -f certs/_k.pem certs/_c.pem
 fi
 
-sed "s|http://@HOST@:5280/upload|https://${DOMAIN}/upload|g" ejabberd/conf/ejabberd.yml > deploy/ejabberd.runtime.yml
+sed -e "s|http://@HOST@:5280/upload|https://${DOMAIN}/upload|g" -e "/hubx.local/d" ejabberd/conf/ejabberd.yml > deploy/ejabberd.runtime.yml
 
 docker compose -f docker-compose.prod.yml up -d --build
 
