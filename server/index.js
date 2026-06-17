@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import validator from "validator";
 import dns from "node:dns";
+import nodemailer from "nodemailer";
 import { createRequire } from "node:module";
 const disposableList = createRequire(import.meta.url)("disposable-email-domains");
 
@@ -426,6 +427,36 @@ async function validateEmail(email) {
   return null;
 }
 
+const SMTP_HOST = process.env.SMTP_HOST;
+const mailer = SMTP_HOST
+  ? nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465 || String(process.env.SMTP_SECURE) === "true",
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    })
+  : null;
+const MAIL_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || `noreply@${XMPP_HOST}`;
+const EMAILS_FILE = path.join(DATA_DIR, "emails.json");
+function saveRegEmail(username, email, code) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    let m = {};
+    try { m = JSON.parse(fs.readFileSync(EMAILS_FILE, "utf8")); } catch {  }
+    m[username] = { email, code, ts: Date.now() };
+    fs.writeFileSync(EMAILS_FILE, JSON.stringify(m), { mode: 0o600 });
+  } catch (e) { console.error("[emails persist]", e.message); }
+}
+async function sendWelcomeEmail(to, username, code) {
+  const link = `https://${process.env.DOMAIN || XMPP_HOST}`;
+  const text = `Привет, ${username}!\n\nВаш аккаунт в HubX успешно создан.\nЛогин: ${username}\nКод регистрации: ${code}\nВход: ${link}\n\nЕсли это были не вы — просто игнорируйте письмо.\n— HubX`;
+  if (!mailer) { console.log(`[mail] SMTP не настроен — код регистрации для ${to}: ${code}`); return; }
+  try {
+    await mailer.sendMail({ from: MAIL_FROM, to, subject: "HubX — регистрация подтверждена", text });
+    console.log(`[mail] welcome -> ${to}`);
+  } catch (e) { console.error("[mail]", e.message); }
+}
+
 app.post("/api/register", registerLimiter, async (req, res) => {
   const { username, password, email, invite } = req.body || {};
   if (!username || typeof password !== "string" || !password)
@@ -450,6 +481,10 @@ app.post("/api/register", registerLimiter, async (req, res) => {
       if (inv.uses >= inv.maxUses) inviteStore.delete(inv.code);
       persistInvites();
     }
+    const regCode = crypto.randomBytes(3).toString("hex").toUpperCase();
+    const emailNorm = String(email).trim().toLowerCase();
+    saveRegEmail(username.toLowerCase(), emailNorm, regCode);
+    sendWelcomeEmail(emailNorm, username.toLowerCase(), regCode).catch(() => {});
     res.json({ ok: true, jid: `${username.toLowerCase()}@${XMPP_HOST}` });
   } catch (e) {
     if (/conflict|already|exist/i.test(String(e.message)))
