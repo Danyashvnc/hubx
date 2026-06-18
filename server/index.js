@@ -447,12 +447,35 @@ function saveRegEmail(username, email, code) {
     fs.writeFileSync(EMAILS_FILE, JSON.stringify(m), { mode: 0o600 });
   } catch (e) { console.error("[emails persist]", e.message); }
 }
+function welcomeEmailHtml(username, code, link) {
+  return `<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0e0e16;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0e0e16;padding:32px 14px;"><tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;background:#15151f;border:1px solid #26263a;border-radius:18px;">
+<tr><td style="padding:30px 32px 6px;text-align:center;">
+<div style="font-size:27px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Hub<span style="color:#7c5cf0;">X</span></div>
+<div style="font-size:13px;color:#8a8aa0;margin-top:4px;">защищённый мессенджер на XMPP</div></td></tr>
+<tr><td style="padding:18px 32px 6px;">
+<div style="font-size:18px;font-weight:700;color:#ffffff;">Привет, ${username}!</div>
+<div style="font-size:15px;line-height:1.6;color:#c7c7d6;margin-top:10px;">Ваш аккаунт в HubX успешно создан. Ниже — код регистрации, сохраните его на случай восстановления доступа.</div></td></tr>
+<tr><td style="padding:16px 32px;">
+<div style="background:#1d1d2b;border:1px solid #33334d;border-radius:14px;padding:18px;text-align:center;">
+<div style="font-size:11px;color:#8a8aa0;text-transform:uppercase;letter-spacing:1.5px;">Код регистрации</div>
+<div style="font-size:30px;font-weight:800;color:#a78bfa;letter-spacing:6px;margin-top:8px;font-family:'Courier New',monospace;">${code}</div></div></td></tr>
+<tr><td style="padding:2px 32px;font-size:14px;color:#c7c7d6;">Логин: <b style="color:#ffffff;">${username}</b></td></tr>
+<tr><td style="padding:18px 32px 28px;text-align:center;">
+<a href="${link}" style="display:inline-block;background:#7c5cf0;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 36px;border-radius:12px;">Войти в HubX</a></td></tr>
+<tr><td style="padding:16px 32px;border-top:1px solid #26263a;text-align:center;font-size:12px;color:#6b6b80;line-height:1.7;">
+Если вы не регистрировались в HubX — просто проигнорируйте это письмо.<br><a href="${link}" style="color:#7c5cf0;text-decoration:none;">${link}</a> · открытый протокол XMPP</td></tr>
+</table></td></tr></table></body></html>`;
+}
 async function sendWelcomeEmail(to, username, code) {
   const link = `https://${process.env.DOMAIN || XMPP_HOST}`;
   const text = `Привет, ${username}!\n\nВаш аккаунт в HubX успешно создан.\nЛогин: ${username}\nКод регистрации: ${code}\nВход: ${link}\n\nЕсли это были не вы — просто игнорируйте письмо.\n— HubX`;
   if (!mailer) { console.log(`[mail] SMTP не настроен — код регистрации для ${to}: ${code}`); return; }
   try {
-    await mailer.sendMail({ from: MAIL_FROM, to, subject: "HubX — регистрация подтверждена", text });
+    await mailer.sendMail({ from: MAIL_FROM, to, subject: "HubX — регистрация подтверждена", text, html: welcomeEmailHtml(username, code, link) });
     console.log(`[mail] welcome -> ${to}`);
   } catch (e) { console.error("[mail]", e.message); }
 }
