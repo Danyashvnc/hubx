@@ -28,7 +28,6 @@ export function Auth({
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [invite, setInvite] = useState("");
   const [email, setEmail] = useState("");
   const [serverId, setServerId] = useState(CONFIG.SERVERS[0].id);
   const [busy, setBusy] = useState(false);
@@ -79,13 +78,9 @@ export function Auth({
         setNotice("Введите корректный e-mail.");
         return;
       }
-      if (!invite.trim()) {
-        setNotice("Нужен код‑приглашение от администратора (для демо: HUBX-DEMO).");
-        return;
-      }
       setBusy(true);
       try {
-        await api.register(u, password, invite.trim() || undefined, email.trim());
+        await api.register(u, password, email.trim());
         setNotice("Аккаунт создан, подключаемся…");
         onLogin(u, password, server, remember);
       } catch (err: any) {
@@ -180,17 +175,22 @@ export function Auth({
 
           <form onSubmit={submit} className="auth-form">
             <label className="field">
-              <span>Имя пользователя</span>
+              <span>{mode === "register" ? "Придумайте логин" : "Имя пользователя"}</span>
               <div className="input-jid">
                 <input
                   autoFocus
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="alice"
+                  placeholder="ivan"
                   autoComplete="username"
                 />
                 <span className="domain">@{server.domain}</span>
               </div>
+              {mode === "register" && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Только латиница, цифры и . _ - · без @ и почты. E-mail укажете ниже.
+                </span>
+              )}
             </label>
 
             <label className="field">
@@ -218,22 +218,6 @@ export function Auth({
               <label className="field">
                 <span>E-mail</span>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@mail.com" autoComplete="email" />
-              </label>
-            )}
-
-            {mode === "register" && server.id === "local" && (
-              <label className="field">
-                <span>Код‑приглашение</span>
-                <input
-                  value={invite}
-                  onChange={(e) => setInvite(e.target.value)}
-                  placeholder="код от администратора"
-                />
-                {CONFIG.IS_LOCAL && (
-                  <span className="muted" style={{ fontSize: 12 }}>
-                    Демо-код: <button type="button" className="chip" onClick={() => setInvite("HUBX-DEMO")}>HUBX-DEMO</button>
-                  </span>
-                )}
               </label>
             )}
 

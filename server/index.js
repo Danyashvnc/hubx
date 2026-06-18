@@ -508,8 +508,6 @@ app.post("/api/register", registerLimiter, async (req, res) => {
   if (emailErr) return res.status(400).json({ ok: false, error: emailErr });
 
   const inv = inviteStore.get(String(invite || ""));
-  if (!inv || inv.exp < Date.now() || inv.uses >= inv.maxUses)
-    return res.status(403).json({ ok: false, error: "нужен код-приглашение" });
 
   try {
     await ejabberd("register", { user: username.toLowerCase(), host: XMPP_HOST, password });
