@@ -17,6 +17,8 @@ export const CONFIG = {
 
   IS_LOCAL: onLocalhost,
 
+  TURNSTILE_SITE_KEY: import.meta.env.VITE_TURNSTILE_SITE_KEY || "",
+
   ADMIN_DEMO: ["admin", import.meta.env.VITE_ADMIN_DEMO_PASS || "Adm-HubX-9F4c2A"] as const,
 
   BOT_USER: import.meta.env.VITE_BOT_USER || "hubx-bot",

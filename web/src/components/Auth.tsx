@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CONFIG } from "../config";
 import type { ConnState } from "../types";
@@ -33,6 +33,12 @@ export function Auth({
   const [busy, setBusy] = useState(false);
   const [remember, setRemember] = useState(true);
   const [notice, setNotice] = useState<string>();
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [tsToken, setTsToken] = useState("");
+  const tsRef = useRef<HTMLDivElement>(null);
+  const tsId = useRef<string | null>(null);
   const server = CONFIG.SERVERS.find((s) => s.id === serverId) || CONFIG.SERVERS[0];
 
   const connecting = state === "connecting";
@@ -78,9 +84,13 @@ export function Auth({
         setNotice("Введите корректный e-mail.");
         return;
       }
+      if (!code.trim()) {
+        setNotice("Введите код из письма — нажмите «Получить проверочный код».");
+        return;
+      }
       setBusy(true);
       try {
-        await api.register(u, password, email.trim());
+        await api.register(u, password, email.trim(), code.trim());
         setNotice("Аккаунт создан, подключаемся…");
         onLogin(u, password, server, remember);
       } catch (err: any) {
@@ -92,6 +102,55 @@ export function Auth({
       onLogin(u, password, server, remember);
     }
   }
+
+  async function requestCode() {
+    setNotice(undefined);
+    const em = email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) {
+      setNotice("Введите корректный e-mail, чтобы получить код.");
+      return;
+    }
+    if (CONFIG.TURNSTILE_SITE_KEY && !tsToken) {
+      setNotice("Подтвердите, что вы не робот.");
+      return;
+    }
+    setSendingCode(true);
+    try {
+      await api.sendCode(em, tsToken || undefined);
+      setCodeSent(true);
+      setNotice("Код отправлен на почту. Проверьте «Входящие» и «Спам».");
+      const w = window as any;
+      if (tsId.current && w.turnstile) { try { w.turnstile.reset(tsId.current); setTsToken(""); } catch {} }
+    } catch (err: any) {
+      setNotice(err.message || "Не удалось отправить код");
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== "register" || !CONFIG.TURNSTILE_SITE_KEY) return;
+    const w = window as any;
+    let iv: any;
+    const tryRender = () => {
+      if (!w.turnstile || !tsRef.current) return false;
+      tsId.current = w.turnstile.render(tsRef.current, {
+        sitekey: CONFIG.TURNSTILE_SITE_KEY,
+        theme: "dark",
+        callback: (t: string) => setTsToken(t),
+        "expired-callback": () => setTsToken(""),
+        "error-callback": () => setTsToken(""),
+      });
+      return true;
+    };
+    if (!tryRender()) iv = setInterval(() => { if (tryRender()) clearInterval(iv); }, 200);
+    return () => {
+      clearInterval(iv);
+      setTsToken("");
+      try { if (tsId.current && w.turnstile) w.turnstile.remove(tsId.current); } catch {}
+      tsId.current = null;
+    };
+  }, [mode]);
 
   if (reconnecting) {
     return (
@@ -163,7 +222,7 @@ export function Auth({
               <button
                 key={m}
                 className={mode === m ? "tab active" : "tab"}
-                onClick={() => { setMode(m); setNotice(undefined); }}
+                onClick={() => { setMode(m); setNotice(undefined); setCode(""); setCodeSent(false); }}
               >
                 {mode === m && <span className="tab-pill" />}
                 <span style={{ position: "relative", zIndex: 1 }}>
@@ -203,6 +262,40 @@ export function Auth({
               </span>
             </label>
 
+            {mode === "register" && server.id === "local" && (
+              <>
+                <label className="field">
+                  <span>E-mail</span>
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@mail.com" autoComplete="email" />
+                </label>
+
+                {CONFIG.TURNSTILE_SITE_KEY && (
+                  <div className="field"><div ref={tsRef} className="turnstile-box" /></div>
+                )}
+
+                <label className="field">
+                  <span>Код проверки</span>
+                  <div className="code-row">
+                    <input
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      placeholder="Введите код из письма"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                    />
+                    <button type="button" className="code-btn" onClick={requestCode} disabled={sendingCode}>
+                      {sendingCode ? "Отправка…" : codeSent ? "Отправить ещё раз" : "Получить код"}
+                    </button>
+                  </div>
+                  {codeSent && (
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      Код отправлен на {email.trim()} · действует 10 минут.
+                    </span>
+                  )}
+                </label>
+              </>
+            )}
+
             <label className="field">
               <span>Пароль</span>
               <input
@@ -213,13 +306,6 @@ export function Auth({
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
               />
             </label>
-
-            {mode === "register" && server.id === "local" && (
-              <label className="field">
-                <span>E-mail</span>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@mail.com" autoComplete="email" />
-              </label>
-            )}
 
             <AnimatePresence mode="wait">
               {authfail && (

@@ -438,6 +438,28 @@ const mailer = SMTP_HOST
   : null;
 const MAIL_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || `noreply@${XMPP_HOST}`;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || "";
+
+const emailCodeStore = new Map(); // emailNorm -> { code, exp, tries }
+const CODE_TTL_MS = 10 * 60 * 1000;
+function pruneCodes() {
+  const now = Date.now();
+  for (const [k, v] of emailCodeStore) if (v.exp < now) emailCodeStore.delete(k);
+}
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET) return true; // капча выключена (локальная разработка)
+  if (!token) return false;
+  try {
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ secret: TURNSTILE_SECRET, response: String(token), ...(ip ? { remoteip: ip } : {}) }),
+    });
+    const d = await r.json().catch(() => ({}));
+    return !!d.success;
+  } catch (e) { console.error("[turnstile]", e.message); return false; }
+}
+
 const EMAILS_FILE = path.join(DATA_DIR, "emails.json");
 function saveRegEmail(username, email, code) {
   try {
@@ -448,7 +470,8 @@ function saveRegEmail(username, email, code) {
     fs.writeFileSync(EMAILS_FILE, JSON.stringify(m), { mode: 0o600 });
   } catch (e) { console.error("[emails persist]", e.message); }
 }
-function welcomeEmailHtml(username, code, link) {
+function codeEmailHtml(code) {
+  const link = `https://${process.env.DOMAIN || XMPP_HOST}`;
   return `<!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#0e0e16;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
@@ -458,45 +481,57 @@ function welcomeEmailHtml(username, code, link) {
 <div style="font-size:27px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Hub<span style="color:#7c5cf0;">X</span></div>
 <div style="font-size:13px;color:#8a8aa0;margin-top:4px;">защищённый мессенджер на XMPP</div></td></tr>
 <tr><td style="padding:18px 32px 6px;">
-<div style="font-size:18px;font-weight:700;color:#ffffff;">Привет, ${username}!</div>
-<div style="font-size:15px;line-height:1.6;color:#c7c7d6;margin-top:10px;">Ваш аккаунт в HubX успешно создан. Ниже — код регистрации, сохраните его на случай восстановления доступа.</div></td></tr>
+<div style="font-size:18px;font-weight:700;color:#ffffff;">Код подтверждения</div>
+<div style="font-size:15px;line-height:1.6;color:#c7c7d6;margin-top:10px;">Введите этот код на странице регистрации, чтобы подтвердить почту. Код действует 10 минут.</div></td></tr>
 <tr><td style="padding:16px 32px;">
 <div style="background:#1d1d2b;border:1px solid #33334d;border-radius:14px;padding:18px;text-align:center;">
-<div style="font-size:11px;color:#8a8aa0;text-transform:uppercase;letter-spacing:1.5px;">Код регистрации</div>
-<div style="font-size:30px;font-weight:800;color:#a78bfa;letter-spacing:6px;margin-top:8px;font-family:'Courier New',monospace;">${code}</div></div></td></tr>
-<tr><td style="padding:2px 32px;font-size:14px;color:#c7c7d6;">Логин: <b style="color:#ffffff;">${username}</b></td></tr>
-<tr><td style="padding:18px 32px 28px;text-align:center;">
-<a href="${link}" style="display:inline-block;background:#7c5cf0;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:13px 36px;border-radius:12px;">Войти в HubX</a></td></tr>
+<div style="font-size:11px;color:#8a8aa0;text-transform:uppercase;letter-spacing:1.5px;">Код подтверждения</div>
+<div style="font-size:34px;font-weight:800;color:#a78bfa;letter-spacing:8px;margin-top:8px;font-family:'Courier New',monospace;">${code}</div></div></td></tr>
 <tr><td style="padding:16px 32px;border-top:1px solid #26263a;text-align:center;font-size:12px;color:#6b6b80;line-height:1.7;">
-Если вы не регистрировались в HubX — просто проигнорируйте это письмо.<br><a href="${link}" style="color:#7c5cf0;text-decoration:none;">${link}</a> · открытый протокол XMPP</td></tr>
+Если вы не запрашивали код — просто проигнорируйте это письмо.<br><a href="${link}" style="color:#7c5cf0;text-decoration:none;">${link}</a> · открытый протокол XMPP</td></tr>
 </table></td></tr></table></body></html>`;
 }
-async function sendWelcomeEmail(to, username, code) {
-  const link = `https://${process.env.DOMAIN || XMPP_HOST}`;
-  const subject = "HubX — регистрация подтверждена";
-  const text = `Привет, ${username}!\n\nВаш аккаунт в HubX успешно создан.\nЛогин: ${username}\nКод регистрации: ${code}\nВход: ${link}\n\nЕсли это были не вы — просто игнорируйте письмо.\n— HubX`;
-  const html = welcomeEmailHtml(username, code, link);
+async function sendMail({ to, subject, text, html }) {
   if (RESEND_API_KEY) {
-    try {
-      const r = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: MAIL_FROM, to, subject, text, html }),
-      });
-      if (!r.ok) { console.error(`[mail] resend ${r.status}`, await r.text().catch(() => "")); }
-      else { console.log(`[mail] welcome -> ${to} (resend)`); }
-    } catch (e) { console.error("[mail] resend", e.message); }
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: MAIL_FROM, to, subject, text, html }),
+    });
+    if (!r.ok) throw new Error(`resend ${r.status} ${await r.text().catch(() => "")}`);
     return;
   }
-  if (!mailer) { console.log(`[mail] SMTP не настроен — код регистрации для ${to}: ${code}`); return; }
-  try {
-    await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
-    console.log(`[mail] welcome -> ${to}`);
-  } catch (e) { console.error("[mail]", e.message); }
+  if (!mailer) { console.log(`[mail] не настроен — "${subject}" для ${to}`); return; }
+  await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
+}
+async function sendCodeEmail(to, code) {
+  const text = `Ваш код подтверждения HubX: ${code}\n\nКод действует 10 минут. Если вы не запрашивали — просто игнорируйте это письмо.`;
+  await sendMail({ to, subject: "HubX — код подтверждения", text, html: codeEmailHtml(code) });
 }
 
+const sendCodeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false });
+app.post("/api/send-code", sendCodeLimiter, async (req, res) => {
+  const { email, token } = req.body || {};
+  if (!(await verifyTurnstile(token, clientIp(req))))
+    return res.status(400).json({ ok: false, error: "Проверка «я не робот» не пройдена" });
+  const emailErr = await validateEmail(email);
+  if (emailErr) return res.status(400).json({ ok: false, error: emailErr });
+  const emailNorm = String(email).trim().toLowerCase();
+  pruneCodes();
+  const code = String(100000 + (crypto.randomBytes(4).readUInt32BE(0) % 900000));
+  emailCodeStore.set(emailNorm, { code, exp: Date.now() + CODE_TTL_MS, tries: 0 });
+  if (!RESEND_API_KEY && !mailer) console.log(`[send-code] (dev) код для ${emailNorm}: ${code}`);
+  try {
+    await sendCodeEmail(emailNorm, code);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[send-code]", e.message);
+    res.status(502).json({ ok: false, error: "Не удалось отправить письмо. Попробуйте позже." });
+  }
+});
+
 app.post("/api/register", registerLimiter, async (req, res) => {
-  const { username, password, email, invite } = req.body || {};
+  const { username, password, email, code } = req.body || {};
   if (!username || typeof password !== "string" || !password)
     return res.status(400).json({ ok: false, error: "username and password are required" });
   if (!/^[a-z0-9._-]{2,32}$/i.test(username))
@@ -507,20 +542,18 @@ app.post("/api/register", registerLimiter, async (req, res) => {
   const emailErr = await validateEmail(email);
   if (emailErr) return res.status(400).json({ ok: false, error: emailErr });
 
-  const inv = inviteStore.get(String(invite || ""));
+  const emailNorm = String(email).trim().toLowerCase();
+  pruneCodes();
+  const rec = emailCodeStore.get(emailNorm);
+  if (!rec || rec.exp < Date.now())
+    return res.status(400).json({ ok: false, error: "Сначала запросите код подтверждения на почту" });
+  if (rec.tries >= 5) { emailCodeStore.delete(emailNorm); return res.status(429).json({ ok: false, error: "Слишком много попыток. Запросите новый код" }); }
+  if (String(code || "").trim() !== rec.code) { rec.tries += 1; return res.status(400).json({ ok: false, error: "Неверный код подтверждения" }); }
 
   try {
     await ejabberd("register", { user: username.toLowerCase(), host: XMPP_HOST, password });
-
-    if (inv) {
-      inv.uses += 1;
-      if (inv.uses >= inv.maxUses) inviteStore.delete(inv.code);
-      persistInvites();
-    }
-    const regCode = crypto.randomBytes(3).toString("hex").toUpperCase();
-    const emailNorm = String(email).trim().toLowerCase();
-    saveRegEmail(username.toLowerCase(), emailNorm, regCode);
-    sendWelcomeEmail(emailNorm, username.toLowerCase(), regCode).catch(() => {});
+    emailCodeStore.delete(emailNorm);
+    saveRegEmail(username.toLowerCase(), emailNorm, rec.code);
     res.json({ ok: true, jid: `${username.toLowerCase()}@${XMPP_HOST}` });
   } catch (e) {
     if (/conflict|already|exist/i.test(String(e.message)))

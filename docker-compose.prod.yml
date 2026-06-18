@@ -30,6 +30,7 @@ services:
       TRUST_PROXY: "uniquelocal, loopback, linklocal"
       DOMAIN: ${DOMAIN}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}
@@ -58,7 +59,11 @@ services:
     networks: [hubx]
 
   caddy:
-    build: { context: ., dockerfile: deploy/Dockerfile.caddy }
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.caddy
+      args:
+        VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
     container_name: hubx-caddy
     restart: unless-stopped
     environment:

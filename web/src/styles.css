@@ -126,6 +126,12 @@ button:focus:not(:focus-visible) { outline: none; }
 .server-select:focus { border-color: var(--violet); }
 .input-jid { position: relative; display: flex; align-items: center; } .input-jid input { padding-right: 96px; }
 .input-jid .domain { position: absolute; right: 12px; color: var(--faint); font-size: 13px; font-family: var(--font-mono); pointer-events: none; }
+.code-row { display: flex; gap: 8px; align-items: stretch; }
+.code-row input { flex: 1; min-width: 0; }
+.code-btn { flex: none; white-space: nowrap; background: var(--accent-weak); border: 1px solid var(--violet); color: var(--violet); font-weight: 600; font-size: 13px; padding: 0 14px; border-radius: 11px; cursor: pointer; transition: background .16s, color .16s; }
+.code-btn:hover:not(:disabled) { background: var(--violet); color: #fff; }
+.code-btn:disabled { opacity: .55; cursor: default; }
+.turnstile-box { min-height: 65px; }
 .btn-primary { margin-top: 4px; border: 0; border-radius: 12px; padding: 13px; font-size: 15px; font-weight: 700; color: #fff; background: var(--grad); box-shadow: 0 12px 30px -10px rgba(124,58,237,0.7); display: flex; align-items: center; justify-content: center; gap: 8px; }
 .btn-primary:disabled { opacity: 0.6; cursor: default; } .arrow { display: inline-block; }
 .banner { padding: 10px 12px; border-radius: 10px; font-size: 13.5px; }
