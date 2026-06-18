@@ -437,6 +437,7 @@ const mailer = SMTP_HOST
     })
   : null;
 const MAIL_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || `noreply@${XMPP_HOST}`;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const EMAILS_FILE = path.join(DATA_DIR, "emails.json");
 function saveRegEmail(username, email, code) {
   try {
@@ -472,10 +473,24 @@ function welcomeEmailHtml(username, code, link) {
 }
 async function sendWelcomeEmail(to, username, code) {
   const link = `https://${process.env.DOMAIN || XMPP_HOST}`;
+  const subject = "HubX — регистрация подтверждена";
   const text = `Привет, ${username}!\n\nВаш аккаунт в HubX успешно создан.\nЛогин: ${username}\nКод регистрации: ${code}\nВход: ${link}\n\nЕсли это были не вы — просто игнорируйте письмо.\n— HubX`;
+  const html = welcomeEmailHtml(username, code, link);
+  if (RESEND_API_KEY) {
+    try {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: MAIL_FROM, to, subject, text, html }),
+      });
+      if (!r.ok) { console.error(`[mail] resend ${r.status}`, await r.text().catch(() => "")); }
+      else { console.log(`[mail] welcome -> ${to} (resend)`); }
+    } catch (e) { console.error("[mail] resend", e.message); }
+    return;
+  }
   if (!mailer) { console.log(`[mail] SMTP не настроен — код регистрации для ${to}: ${code}`); return; }
   try {
-    await mailer.sendMail({ from: MAIL_FROM, to, subject: "HubX — регистрация подтверждена", text, html: welcomeEmailHtml(username, code, link) });
+    await mailer.sendMail({ from: MAIL_FROM, to, subject, text, html });
     console.log(`[mail] welcome -> ${to}`);
   } catch (e) { console.error("[mail]", e.message); }
 }

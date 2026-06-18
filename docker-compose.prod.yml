@@ -29,6 +29,7 @@ services:
       ALLOWED_ORIGINS: https://${DOMAIN}
       TRUST_PROXY: "uniquelocal, loopback, linklocal"
       DOMAIN: ${DOMAIN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}
       SMTP_USER: ${SMTP_USER:-}
