@@ -35,7 +35,7 @@ if [ ! -f certs/fed.pem ]; then
   cat certs/_k.pem certs/_c.pem > certs/fed.pem && rm -f certs/_k.pem certs/_c.pem
 fi
 
-sed -e "s|http://@HOST@:5280/upload|https://${DOMAIN}/upload|g" -e "/hubx.local/d" ejabberd/conf/ejabberd.yml > deploy/ejabberd.runtime.yml
+sed -e "s|http://@HOST@:5280/upload|https://${DOMAIN}/upload|g" -e "/hubx.local/d" -e "s|^  - localhost\$|  - ${DOMAIN}|" -e "s|admin@localhost|admin@${DOMAIN}|g" ejabberd/conf/ejabberd.yml > deploy/ejabberd.runtime.yml
 
 docker compose -f docker-compose.prod.yml up -d --build
 
@@ -45,10 +45,12 @@ for i in $(seq 1 40); do
   echo -n "."; sleep 3
 done; echo " ready."
 
-reg() { docker compose -f docker-compose.prod.yml exec -T ejabberd ejabberdctl register "$1" localhost "$2" >/dev/null 2>&1 || true; }
+reg() { docker compose -f docker-compose.prod.yml exec -T ejabberd ejabberdctl register "$1" "${DOMAIN}" "$2" >/dev/null 2>&1 || true; }
 reg admin "$ADMIN_PASS"
-docker compose -f docker-compose.prod.yml exec -T ejabberd ejabberdctl change_password admin localhost "$ADMIN_PASS" >/dev/null 2>&1 || true
+docker compose -f docker-compose.prod.yml exec -T ejabberd ejabberdctl change_password admin "${DOMAIN}" "$ADMIN_PASS" >/dev/null 2>&1 || true
 reg hubx-bot "$BOT_PASS"
+reg alice alice123
+reg bob bob123
 docker compose -f docker-compose.prod.yml restart bot >/dev/null 2>&1 || true
 
 echo ""

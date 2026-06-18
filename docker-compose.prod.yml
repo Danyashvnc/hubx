@@ -21,9 +21,9 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      XMPP_HOST: localhost
+      XMPP_HOST: ${DOMAIN}
       EJABBERD_API: http://ejabberd:5280/api
-      ADMIN_JID: admin@localhost
+      ADMIN_JID: admin@${DOMAIN}
       ADMIN_PASS: ${ADMIN_PASS}
       ADMIN_API_SECRET: ${ADMIN_API_SECRET}
       ALLOWED_ORIGINS: https://${DOMAIN}
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
     environment:
       XMPP_WS: ws://ejabberd:5280/ws
-      XMPP_DOMAIN: localhost
+      XMPP_DOMAIN: ${DOMAIN}
       BOT_USER: hubx-bot
       BOT_PASS: ${BOT_PASS}
       REMINDERS_FILE: /app/data/reminders.json
@@ -64,6 +64,7 @@ services:
       dockerfile: deploy/Dockerfile.caddy
       args:
         VITE_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+        VITE_XMPP_DOMAIN: ${DOMAIN}
     container_name: hubx-caddy
     restart: unless-stopped
     environment:

@@ -4,16 +4,17 @@ const sameOriginApi = () => location.origin;
 
 const WS = import.meta.env.VITE_XMPP_WS || (onLocalhost ? "ws://localhost:5280/ws" : sameOriginWs());
 const API = import.meta.env.VITE_API_URL || (onLocalhost ? "http://localhost:4000" : sameOriginApi());
+const XMPP_DOMAIN = import.meta.env.VITE_XMPP_DOMAIN || "localhost";
 
 export const CONFIG = {
 
-  DOMAIN: import.meta.env.VITE_XMPP_DOMAIN || "localhost",
+  DOMAIN: XMPP_DOMAIN,
 
   WS_URL: WS,
 
   API_URL: API,
 
-  ADMIN_JID: import.meta.env.VITE_ADMIN_JID || "admin@localhost",
+  ADMIN_JID: import.meta.env.VITE_ADMIN_JID || `admin@${XMPP_DOMAIN}`,
 
   IS_LOCAL: onLocalhost,
 
@@ -28,7 +29,7 @@ export const CONFIG = {
       id: "local",
       label: "HubX · основной",
       ws: WS,
-      domain: "localhost",
+      domain: XMPP_DOMAIN,
       demo: [["alice", "alice123"], ["bob", "bob123"]] as const,
     },
     {
