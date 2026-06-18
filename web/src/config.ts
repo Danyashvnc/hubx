@@ -1,6 +1,6 @@
 const onLocalhost = typeof location === "undefined" || /^(localhost|127\.|0\.0\.0\.0|\[?::1)/.test(location.hostname);
 const sameOriginWs = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
-const sameOriginApi = () => `${location.origin}/api`;
+const sameOriginApi = () => location.origin;
 
 const WS = import.meta.env.VITE_XMPP_WS || (onLocalhost ? "ws://localhost:5280/ws" : sameOriginWs());
 const API = import.meta.env.VITE_API_URL || (onLocalhost ? "http://localhost:4000" : sameOriginApi());
