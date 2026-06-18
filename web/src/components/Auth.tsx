@@ -14,6 +14,18 @@ const item = {
   visible: { opacity: 1, y: 0 },
 };
 
+const RESERVED_LOCAL = [
+  "admin", "administrator", "admins", "support", "supportteam", "helpdesk", "help",
+  "root", "superuser", "sudo", "owner", "system", "sys", "service", "services",
+  "hubx", "hubxbot", "bot", "official", "moderator", "moder", "mod", "staff", "team",
+  "security", "abuse", "postmaster", "webmaster", "hostmaster", "info", "contact",
+  "noreply", "tech", "techsupport", "technical", "technicalsupport",
+];
+function isReservedLocal(u: string) {
+  const n = u.toLowerCase().replace(/[._\-\s]/g, "");
+  return RESERVED_LOCAL.includes(n) || /^(admin|support|moder|official|hubx|root|system)/.test(n);
+}
+
 export function Auth({
   state,
   detail,
@@ -37,6 +49,7 @@ export function Auth({
   const [codeSent, setCodeSent] = useState(false);
   const [sendingCode, setSendingCode] = useState(false);
   const [tsToken, setTsToken] = useState("");
+  const [uStatus, setUStatus] = useState<"idle" | "checking" | "free" | "taken" | "reserved" | "short">("idle");
   const tsRef = useRef<HTMLDivElement>(null);
   const tsId = useRef<string | null>(null);
   const server = CONFIG.SERVERS.find((s) => s.id === serverId) || CONFIG.SERVERS[0];
@@ -74,6 +87,14 @@ export function Auth({
       }
       if (!/^[a-z0-9._-]{2,32}$/.test(u)) {
         setNotice("Логин: 2–32 символа, латиница/цифры и . _ -");
+        return;
+      }
+      if (isReservedLocal(u)) {
+        setNotice("Это имя зарезервировано системой — выберите другое.");
+        return;
+      }
+      if (uStatus === "taken") {
+        setNotice("Этот логин уже занят — выберите другое.");
         return;
       }
       if (password.length < 8) {
@@ -151,6 +172,24 @@ export function Auth({
       tsId.current = null;
     };
   }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "register" || server.id !== "local") { setUStatus("idle"); return; }
+    const u = username.trim().toLowerCase();
+    if (!u) { setUStatus("idle"); return; }
+    if (/[а-я]/i.test(username) || !/^[a-z0-9._-]{2,32}$/.test(u)) { setUStatus("short"); return; }
+    if (isReservedLocal(u)) { setUStatus("reserved"); return; }
+    setUStatus("checking");
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const r = await api.checkUsername(u, server.domain);
+      if (cancelled) return;
+      if (r === "unknown") { setUStatus("idle"); return; }
+      if (r.reserved) setUStatus("reserved");
+      else setUStatus(r.exists ? "taken" : "free");
+    }, 450);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [username, mode, serverId]);
 
   if (reconnecting) {
     return (
@@ -248,6 +287,16 @@ export function Auth({
               {mode === "register" && (
                 <span className="muted" style={{ fontSize: 12 }}>
                   Только латиница, цифры и . _ - · без @ и почты. E-mail укажете ниже.
+                </span>
+              )}
+              {mode === "register" && uStatus !== "idle" && (
+                <span style={{ fontSize: 12, fontWeight: 600, color:
+                  uStatus === "free" ? "#34d399" : uStatus === "checking" ? "var(--txt-2)" : "#f87171" }}>
+                  {uStatus === "checking" && "Проверяем доступность…"}
+                  {uStatus === "free" && "✓ Логин свободен"}
+                  {uStatus === "taken" && "✗ Логин уже занят"}
+                  {uStatus === "reserved" && "✗ Это имя зарезервировано"}
+                  {uStatus === "short" && "Минимум 2 символа: латиница, цифры, . _ -"}
                 </span>
               )}
             </label>

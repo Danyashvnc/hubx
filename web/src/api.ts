@@ -152,6 +152,16 @@ export const api = {
     }
   },
 
+  async checkUsername(username: string, host?: string): Promise<{ exists: boolean; reserved: boolean } | "unknown"> {
+    try {
+      const q = `u=${encodeURIComponent(username)}${host ? `&host=${encodeURIComponent(host)}` : ""}`;
+      const data = await jsonFetch(`/api/user-exists?${q}`);
+      return { exists: !!data.exists, reserved: !!data.reserved };
+    } catch {
+      return "unknown";
+    }
+  },
+
   async userExists(username: string, host?: string): Promise<boolean | "unknown"> {
     try {
       const q = `u=${encodeURIComponent(username)}${host ? `&host=${encodeURIComponent(host)}` : ""}`;

@@ -24,6 +24,19 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
 const ALLOWED_HOSTS = (process.env.XMPP_HOSTS || `${XMPP_HOST},hubx.local`).split(",").map((s) => s.trim().toLowerCase());
 const safeHost = (h) => { const v = String(h || "").toLowerCase().trim(); return ALLOWED_HOSTS.includes(v) ? v : XMPP_HOST; };
 
+const RESERVED_USERNAMES = new Set([
+  "admin", "administrator", "admins", "support", "supportteam", "helpdesk", "help",
+  "root", "superuser", "sudo", "owner", "system", "sys", "service", "services",
+  "hubx", "hubxbot", "bot", "official", "moderator", "moder", "mod", "staff", "team",
+  "security", "abuse", "postmaster", "webmaster", "hostmaster", "info", "contact",
+  "noreply", "tech", "techsupport", "technical", "technicalsupport",
+]);
+function isReservedUsername(u) {
+  const norm = String(u || "").toLowerCase().replace(/[._\-\s]/g, "");
+  if (RESERVED_USERNAMES.has(norm)) return true;
+  return /^(admin|support|moder|official|hubx|root|system)/.test(norm);
+}
+
 const ADMIN_USERS = (process.env.ADMIN_USERS || ADMIN_JID.split("@")[0])
   .split(",").map((s) => s.trim().toLowerCase());
 const TOKEN_TTL_MS = 30 * 60 * 1000;
@@ -536,6 +549,8 @@ app.post("/api/register", registerLimiter, async (req, res) => {
     return res.status(400).json({ ok: false, error: "username and password are required" });
   if (!/^[a-z0-9._-]{2,32}$/i.test(username))
     return res.status(400).json({ ok: false, error: "username: 2-32 chars, letters/digits/._- only" });
+  if (isReservedUsername(username))
+    return res.status(403).json({ ok: false, error: "Это имя зарезервировано системой" });
   if (String(password).length < 8)
     return res.status(400).json({ ok: false, error: "password must be at least 8 characters" });
 
@@ -608,14 +623,15 @@ app.get("/api/user-exists", lookupLimiter, async (req, res) => {
     return res.json({ ok: true, exists: false });
   if (rawHost && !ALLOWED_HOSTS.includes(rawHost))
     return res.json({ ok: true, exists: true, remote: true });
+  const reserved = isReservedUsername(user);
   try {
 
     const r = await ejabberd("check_account", { user, host });
     const exists = r === 0 || r === "0" || r?.res === 0;
-    res.json({ ok: true, exists });
+    res.json({ ok: true, exists, reserved });
   } catch (e) {
 
-    res.json({ ok: true, exists: true, unverified: true });
+    res.json({ ok: true, exists: true, unverified: true, reserved });
   }
 });
 
